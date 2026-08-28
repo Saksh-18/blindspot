@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font-family: system-ui, sans-serif; width: 320px; padding: 12px; }
+    button { width: 100%; padding: 8px; cursor: pointer; }
+    #status { margin-top: 8px; font-size: 13px; color: #555; }
+    #preview { width: 100%; margin-top: 8px; border: 1px solid #ccc; display: none; }
+    #domList { max-height: 160px; overflow-y: auto; font-size: 12px; margin-top: 8px; }
+    .sensitive { color: #c0392b; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <button id="captureBtn">Capture &amp; Sanitize Current Tab</button>
+  <div id="status">Idle.</div>
+  <img id="preview" />
+  <div id="domList"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

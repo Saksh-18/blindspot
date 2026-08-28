@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgentAction",
+  "description": "Single action returned by the server VLM for the client to execute. One action per response — the client re-captures and re-sends after each execution, so the loop stays grounded in real screen state.",
+  "type": "object",
+  "required": ["action", "reasoning"],
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": ["click", "type", "scroll", "wait", "done", "ask_user"]
+    },
+    "selector": {
+      "type": "string",
+      "description": "CSS selector or DOM node id from the sanitized DOM snapshot. Required for click/type."
+    },
+    "text": {
+      "type": "string",
+      "description": "Text to type. Required for 'type'."
+    },
+    "scroll_direction": {
+      "type": "string",
+      "enum": ["up", "down"]
+    },
+    "scroll_amount_px": {
+      "type": "integer"
+    },
+    "reasoning": {
+      "type": "string",
+      "description": "One-line justification, shown in the extension UI for transparency/debugging."
+    },
+    "task_complete": {
+      "type": "boolean",
+      "default": false
+    }
+  }
+}
