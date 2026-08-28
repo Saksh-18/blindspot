@@ -15,7 +15,9 @@ extension/          Manifest V3 browser extension (client)
   vision/
     detector.js        local ONNX/Transformers.js model — finds sensitive regions
     redact.js           canvas-based blackout/blur, applied before send
-  popup/               extension UI (task input, status)
+  popup/
+     popup.html
+     popup.js               extension UI (task input, status)
   models/              ONNX model weights (gitignored — fetched via a setup script)
 
 server/              FastAPI backend
