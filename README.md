@@ -1,4 +1,4 @@
-# Privacy-Preserving Vision Agent (SIH — ISRO)
+# Privacy-Preserving Vision Agent
 
 On-device visual perception for a lightweight browser agent. Local vision
 model detects and redacts sensitive screen content (faces, passwords, PII)
