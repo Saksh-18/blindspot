@@ -3,7 +3,15 @@ Wraps the call to whatever VLM backs the reasoning step.
 
 Three providers, same output shape (a dict matching AgentAction):
 
-
+  - "groq"  : Qwen3.6-27B hosted on Groq. Open-weights model, free tier, no
+             payment method required. This is what you develop against on
+             this laptop. Satisfies the SIH rule ("open-weights model,
+             cloud-hosted during SIH is fine") without needing local GPU.
+  - "local" : true on-device inference (e.g. via llama.cpp / MLX / Ollama).
+             TODO — this is what your teammate can wire up on her MacBook.
+             Same Qwen weights, run locally instead of via Groq's API.
+  - "cloud" : Anthropic Claude, implemented earlier as a fallback/comparison
+             option. Requires a paid API key.
 
 Swap PROVIDER below; main.py never changes.
 """
@@ -100,18 +108,43 @@ def _build_prompt(req: AgentStepRequest) -> str:
         f"\"{n.text}\"" + (" [SENSITIVE]" if n.sensitive else "")
         for n in req.dom
     )
-    history_summary = "\n".join(f"- {a.action}: {a.reasoning}" for a in req.history)
+
+    def _format_history_entry(a):
+        line = f"- {a.action}"
+        if a.selector:
+            line += f" on {a.selector}"
+        if a.text:
+            line += f' = "{a.text}"'
+        line += f": {a.reasoning}"
+        exec_result = getattr(a, "executionResult", None)
+        if exec_result is not None:
+            matched = exec_result.get("matched") if isinstance(exec_result, dict) else None
+            if matched is False:
+                line += "  [FAILED: selector not found on page — that element doesn't exist, pick a different one]"
+            elif matched is True:
+                line += "  [executed successfully]"
+        return line
+
+    history_summary = "\n".join(_format_history_entry(a) for a in req.history)
 
     return f"""You control a browser to complete this task: {req.task}
 
-You are looking at a screenshot with sensitive regions already blacked out —
-do not try to read or guess redacted content, work around it.
+You are looking at the CURRENT screenshot, taken after any actions listed
+below already happened. Sensitive regions are already blacked out — do not
+try to read or guess redacted content, work around it.
 
-Visible interactive elements (from the DOM, already sanitized):
+Visible interactive elements right now (from the DOM, already sanitized):
 {dom_summary}
 
-Actions taken so far:
+Actions taken so far, and whether they actually worked:
 {history_summary or '(none yet)'}
+
+Look at the CURRENT screenshot carefully before deciding. Only choose
+"done" if the screenshot clearly shows the task is now complete — do not
+mark a click or type action as done in the same turn you perform it; you
+have not seen its effect yet. If a previous action failed (selector not
+found), do not repeat the same selector — find a different one from the
+current DOM list above.
 
 Decide the single next action. Respond with ONLY a JSON object, no prose,
 matching this shape:
@@ -122,7 +155,7 @@ matching this shape:
   "scroll_direction": "up" | "down",
   "scroll_amount_px": <integer>,
   "reasoning": "<one short sentence explaining this action>",
-  "task_complete": <true if this action finishes the task, else false>
+  "task_complete": <true only if action is \"done\", else false>
 }}
 Only include the fields relevant to the chosen action."""
 

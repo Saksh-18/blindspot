@@ -48,6 +48,12 @@ class AgentAction(BaseModel):
     scroll_amount_px: Optional[int] = None
     reasoning: str
     task_complete: bool = False
+    executionResult: Optional[dict] = Field(
+        default=None,
+        description="Set client-side after execution: {'matched': bool}. "
+        "Not set by the model — sent back in history so the model can see "
+        "whether its own past actions actually worked.",
+    )
 
 
 AgentStepRequest.model_rebuild()

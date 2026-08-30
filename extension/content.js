@@ -150,19 +150,31 @@ async function captureAndSanitize() {
   };
 }
 
+/**
+ * Performs the action and reports back whether the target element was
+ * actually found — without this, a wrong/stale selector fails silently and
+ * the loop has no way to know the click never happened.
+ */
 function executeAction(action) {
   if (action.action === "click") {
-    document.querySelector(action.selector)?.click();
-  } else if (action.action === "type") {
     const el = document.querySelector(action.selector);
-    if (el) {
-      el.value = action.text;
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-  } else if (action.action === "scroll") {
+    if (!el) return { matched: false };
+    el.click();
+    return { matched: true };
+  }
+  if (action.action === "type") {
+    const el = document.querySelector(action.selector);
+    if (!el) return { matched: false };
+    el.value = action.text;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    return { matched: true };
+  }
+  if (action.action === "scroll") {
     window.scrollBy(0, action.scroll_direction === "down" ? action.scroll_amount_px : -action.scroll_amount_px);
+    return { matched: true };
   }
   // "wait" / "done" / "ask_user" are no-ops at the DOM level.
+  return { matched: true };
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -171,7 +183,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.type === "EXECUTE_ACTION") {
-    executeAction(msg.action);
-    sendResponse({ ok: true });
+    const result = executeAction(msg.action);
+    sendResponse(result);
   }
 });

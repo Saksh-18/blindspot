@@ -31,6 +31,10 @@
     "task_complete": {
       "type": "boolean",
       "default": false
+    },
+    "executionResult": {
+      "type": ["object", "null"],
+      "description": "Set client-side after execution ({'matched': bool}), not by the model. Sent back in history so the model can see whether its own past action actually worked."
     }
   }
 }

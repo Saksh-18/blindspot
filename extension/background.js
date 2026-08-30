@@ -12,7 +12,8 @@ const SERVER_URL = "http://localhost:8000/agent/step";
  *  3. POST sanitized {image, dom} + task to the server
  *  4. get back one AgentAction (see shared/action_schema.json)
  *  5. tell content.js to execute it
- *  6. repeat until action.task_complete or action === "done"
+ *  6. repeat until action.action === "done" (never trust task_complete alone —
+ *     see the loop in the START_TASK handler below)
  */
 async function runAgentStep(tabId, task, history = []) {
   const capture = await chrome.tabs.sendMessage(tabId, {
@@ -37,11 +38,17 @@ async function runAgentStep(tabId, task, history = []) {
 
   const action = await response.json(); // matches shared/action_schema.json
 
-  if (action.action !== "done" && !action.task_complete) {
-    await chrome.tabs.sendMessage(tabId, {
+  if (action.action !== "done" && action.action !== "wait" && action.action !== "ask_user") {
+    const execResult = await chrome.tabs.sendMessage(tabId, {
       type: "EXECUTE_ACTION",
       action,
     });
+    // Attach what actually happened so the model sees it on the *next* turn —
+    // it shouldn't be trusted to already know this about its own action.
+    action.executionResult = execResult;
+    if (!execResult.matched) {
+      console.warn(`Selector not found on page: ${action.selector}`);
+    }
   }
 
   return action;
@@ -75,7 +82,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           action = await runAgentStep(tab.id, msg.task, history);
           history.push(action);
           steps++;
-        } while (action.action !== "done" && !action.task_complete && steps < MAX_STEPS);
+          // IMPORTANT: we only stop on action === "done" — a click/type
+          // response claiming task_complete: true in the SAME turn it
+          // performed the action is not trusted, since the model hasn't
+          // actually seen the result of its own action yet. It gets one
+          // more round-trip (fresh screenshot + DOM) to confirm before it
+          // can legitimately say "done".
+        } while (action.action !== "done" && steps < MAX_STEPS);
 
         sendResponse({ done: true, steps, history });
       } catch (err) {
