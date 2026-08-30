@@ -1,8 +1,8 @@
 fastapi>=0.111
 uvicorn[standard]>=0.30
 pydantic>=2.7
-# Add your VLM's deps here once chosen, e.g.:
-# transformers>=4.44
-# torch
-# accelerate
-# qwen-vl-utils
+groq>=0.11
+python-dotenv>=1.0
+anthropic>=0.40
+# Add local-inference deps here once wiring up true on-device VLM, e.g.:
+# ollama  (if calling a local Ollama server)

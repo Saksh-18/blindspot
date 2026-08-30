@@ -1,3 +1,7 @@
+from dotenv import load_dotenv
+
+load_dotenv()  # reads server/.env for ANTHROPIC_API_KEY — must run before vlm_client is imported
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

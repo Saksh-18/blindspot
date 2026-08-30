@@ -70,13 +70,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       let steps = 0;
       const MAX_STEPS = 15; // safety cap
 
-      do {
-        action = await runAgentStep(tab.id, msg.task, history);
-        history.push(action);
-        steps++;
-      } while (action.action !== "done" && !action.task_complete && steps < MAX_STEPS);
+      try {
+        do {
+          action = await runAgentStep(tab.id, msg.task, history);
+          history.push(action);
+          steps++;
+        } while (action.action !== "done" && !action.task_complete && steps < MAX_STEPS);
 
-      sendResponse({ done: true, steps, history });
+        sendResponse({ done: true, steps, history });
+      } catch (err) {
+        console.error("Agent loop failed:", err);
+        sendResponse({ done: false, error: err.message, steps, history });
+      }
     })();
     return true; // keep the message channel open for the async response
   }

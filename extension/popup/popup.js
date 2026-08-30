@@ -1,7 +1,54 @@
 // popup.js
-// This is a debug harness, not the real agent loop (that lives in
-// background.js's START_TASK handler). It exists so you can confirm
-// capture -> sanitize actually works before wiring in the server/VLM.
+
+const runTaskBtn = document.getElementById("runTaskBtn");
+const taskInput = document.getElementById("taskInput");
+const taskStatus = document.getElementById("taskStatus");
+const actionLog = document.getElementById("actionLog");
+
+runTaskBtn.addEventListener("click", async () => {
+  const task = taskInput.value.trim();
+  if (!task) {
+    taskStatus.textContent = "Enter a task first.";
+    return;
+  }
+
+  runTaskBtn.disabled = true;
+  taskStatus.textContent = "Running... (this can take a few seconds per step)";
+  actionLog.innerHTML = "";
+
+  try {
+    // background.js owns the full loop: capture -> sanitize -> POST to
+    // server -> get one AgentAction -> execute -> repeat until done.
+    const result = await chrome.runtime.sendMessage({ type: "START_TASK", task });
+
+    if (!result) {
+      taskStatus.textContent = "No response from background script — check its console.";
+      return;
+    }
+
+    if (result.error) {
+      taskStatus.textContent = `Stopped after ${result.steps} step(s): ${result.error}`;
+    } else {
+      taskStatus.textContent = `Finished in ${result.steps} step(s).`;
+    }
+    actionLog.innerHTML = result.history
+      .map(
+        (a, i) =>
+          `<div class="step"><b>${i + 1}. ${a.action}</b>` +
+          (a.selector ? ` on <code>${escapeHtml(a.selector)}</code>` : "") +
+          (a.text ? ` = "${escapeHtml(a.text)}"` : "") +
+          `<br><i>${escapeHtml(a.reasoning || "")}</i></div>`
+      )
+      .join("");
+  } catch (err) {
+    taskStatus.textContent = `Error: ${err.message}`;
+    console.error(err);
+  } finally {
+    runTaskBtn.disabled = false;
+  }
+});
+
+// --- Debug capture-only harness below (unchanged) ---
 
 const btn = document.getElementById("captureBtn");
 const status = document.getElementById("status");
@@ -31,7 +78,8 @@ btn.addEventListener("click", async () => {
     status.textContent =
       `Captured. ${result.sanitizedDom.length} DOM elements found, ` +
       `${result.redactionReport.domFieldsRedacted} flagged sensitive, ` +
-      `${result.redactionReport.visualRegionsRedacted} visual regions redacted.`;
+      `${result.redactionReport.textPiiRedacted} text-PII matches (OTP/receipt/card/etc), ` +
+      `${result.redactionReport.visualRegionsRedacted} model-detected visual regions.`;
 
     domList.innerHTML = result.sanitizedDom
       .slice(0, 30)

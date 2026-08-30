@@ -1,0 +1,10 @@
+node_modules/
+extension/models/*.onnx
+extension/models/*.bin
+venv/
+__pycache__/
+*.pyc
+.env
+server/.env
+eval/sample_screens/*.png
+eval/sample_screens/*.jpg
