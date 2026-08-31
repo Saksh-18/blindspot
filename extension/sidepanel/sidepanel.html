@@ -2,279 +2,977 @@
 <html>
 <head>
   <meta charset="utf-8" />
+  <title>Vision Agent Panel</title>
+  <!-- Modern Typography Styling -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
   <style>
     :root {
-      --navy: #12203D;
-      --navy-light: #1D3159;
-      --teal: #0FBFA6;
-      --teal-dim: #0FBFA633;
-      --ink: #14181F;
-      --muted: #6B7280;
-      --border: #E4E7EC;
-      --surface: #F6F7F9;
-      --danger: #D6483F;
-      --danger-dim: #D6483F1A;
-      --success: #1E9E6C;
-      --success-dim: #1E9E6C1A;
-      --click: #2F6FED;
-      --type-action: #0FBFA6;
-      --scroll: #8B5CF6;
+      /* Curated Sleek HSL Palette */
+      --bg-gradient: linear-gradient(135deg, #090B11 0%, #0F131E 100%);
+      --surface: rgba(21, 28, 48, 0.4);
+      --surface-glass: rgba(255, 255, 255, 0.03);
+      --surface-active: rgba(255, 255, 255, 0.07);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-hover: rgba(255, 255, 255, 0.16);
+      
+      --accent-teal: #08F7CD;
+      --accent-teal-glow: rgba(8, 247, 205, 0.2);
+      --accent-blue: #3E85FF;
+      --accent-purple: #9553FF;
+      --accent-purple-glow: rgba(149, 83, 255, 0.15);
+      
+      --text-main: #E2E8F0;
+      --text-muted: #8E9BAE;
+      
+      --success: #10B981;
+      --success-dim: rgba(16, 185, 129, 0.1);
+      --danger: #F43F5E;
+      --danger-dim: rgba(244, 63, 94, 0.15);
+      
+      --click-grad: linear-gradient(135deg, #3E85FF, #2563EB);
+      --type-grad: linear-gradient(135deg, #08F7CD, #059669);
+      --scroll-grad: linear-gradient(135deg, #9553FF, #7C3AED);
     }
-    * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      height: 100%;
+      background: #090B11;
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', -apple-system, system-ui, sans-serif;
+      font-size: 13px;
+      overflow: hidden;
+    }
+
     body {
-      font-family: -apple-system, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
       display: flex;
       flex-direction: column;
       height: 100vh;
-      background: var(--surface);
-      color: var(--ink);
-      font-size: 13.5px;
-      line-height: 1.45;
+      background: var(--bg-gradient);
     }
 
+    /* --- Custom Scrollbar --- */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* --- HEADER --- */
     header {
-      flex-shrink: 0;
-      background: var(--navy);
-      color: #fff;
-      padding: 14px 16px;
+      background: rgba(9, 11, 17, 0.8);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 18px;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
+      flex-shrink: 0;
+      z-index: 10;
     }
-    header .brand-text { flex: 1; }
-    header h1 {
-      margin: 0;
-      font-size: 14.5px;
+
+    .brand-logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(8, 247, 205, 0.1), rgba(62, 133, 255, 0.1));
+      border: 1px solid var(--border);
+      box-shadow: 0 0 12px rgba(8, 247, 205, 0.1);
+    }
+
+    .brand-text h1 {
+      font-size: 14px;
       font-weight: 700;
-      letter-spacing: 0.01em;
+      letter-spacing: 0.5px;
+      background: linear-gradient(to right, #FFF, #CAD4E0);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
     }
-    header .subtitle {
+
+    .brand-text .subtitle {
       margin-top: 2px;
-      font-size: 11px;
-      color: #9FB3D6;
+      font-size: 10.5px;
+      color: var(--text-muted);
       display: flex;
       align-items: center;
-      gap: 5px;
+      gap: 6px;
     }
+
     .pulse-dot {
-      width: 6px; height: 6px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
-      background: var(--teal);
-      box-shadow: 0 0 0 0 var(--teal-dim);
-      animation: pulse 2s infinite;
-      flex-shrink: 0;
+      background: var(--accent-teal);
+      box-shadow: 0 0 8px var(--accent-teal);
+      animation: pulse 2.5s infinite;
     }
+
     @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 var(--teal-dim); }
-      70% { box-shadow: 0 0 0 5px transparent; }
+      0% { box-shadow: 0 0 0 0 var(--accent-teal-glow); }
+      70% { box-shadow: 0 0 0 6px transparent; }
       100% { box-shadow: 0 0 0 0 transparent; }
     }
 
+    /* --- TAB NAVIGATION --- */
+    .tabs {
+      display: flex;
+      background: rgba(9, 11, 17, 0.4);
+      border-bottom: 1px solid var(--border);
+      padding: 2px 8px;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .tab-btn {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 10px 4px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      font-family: inherit;
+    }
+
+    .tab-btn:hover {
+      color: var(--text-main);
+      background: var(--surface-glass);
+    }
+
+    .tab-btn.active {
+      color: var(--accent-teal);
+      background: var(--surface-active);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    /* --- PAGE CONTAINER --- */
+    .tab-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .tab-pane {
+      display: none;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .tab-pane.active {
+      display: flex;
+    }
+
+    /* --- SUB-CONTAINER CARDS --- */
+    .glass-card {
+      background: var(--surface-glass);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 12px;
+      backdrop-filter: blur(4px);
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* --- RUN PANEL --- */
     #log {
       flex: 1;
       overflow-y: auto;
-      padding: 14px 14px 6px;
+      margin-bottom: 16px;
+      padding-right: 4px;
     }
+
     .empty-state {
-      color: var(--muted);
-      font-size: 12.5px;
+      color: var(--text-muted);
       text-align: center;
-      margin-top: 48px;
-      padding: 0 20px;
+      padding: 40px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
     }
-    .empty-state svg { opacity: 0.35; margin-bottom: 10px; }
+
+    .empty-state svg {
+      opacity: 0.25;
+      stroke: var(--text-muted);
+    }
+
+    .empty-text {
+      font-size: 12px;
+      max-width: 200px;
+      line-height: 1.5;
+    }
+
+    /* --- TIMELINE STEPS --- */
+    .step-timeline {
+      position: relative;
+      padding-left: 20px;
+      border-left: 2px solid var(--border);
+      margin-left: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
 
     .step {
-      background: #fff;
+      position: relative;
+      background: var(--surface-glass);
       border: 1px solid var(--border);
-      border-left: 3px solid var(--muted);
       border-radius: 10px;
-      padding: 10px 12px;
-      margin-bottom: 8px;
-      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.03);
+      padding: 12px;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     }
-    .step.action-click { border-left-color: var(--click); }
-    .step.action-type { border-left-color: var(--type-action); }
-    .step.action-scroll { border-left-color: var(--scroll); }
-    .step.action-done { border-left-color: var(--success); }
-    .step.pending { border-left-color: var(--muted); opacity: 0.7; }
+
+    .step:hover {
+      border-color: var(--border-hover);
+    }
+
+    .step::before {
+      content: '';
+      position: absolute;
+      left: -26px;
+      top: 14px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      border: 2px solid #090B11;
+      box-shadow: 0 0 6px var(--text-muted);
+      z-index: 2;
+    }
+
+    .step.action-click::before { background: var(--accent-blue); box-shadow: 0 0 8px rgba(62, 133, 255, 0.4); }
+    .step.action-type::before { background: var(--accent-teal); box-shadow: 0 0 8px rgba(8, 247, 205, 0.4); }
+    .step.action-scroll::before { background: var(--accent-purple); box-shadow: 0 0 8px rgba(149, 83, 255, 0.4); }
+    .step.action-done::before { background: var(--success); box-shadow: 0 0 8px rgba(16, 185, 129, 0.4); }
+    .step.pending::before { background: var(--text-muted); animation: pulse-gray 1.5s infinite; }
+
+    @keyframes pulse-gray {
+      0% { opacity: 0.5; }
+      50% { opacity: 1; }
+      100% { opacity: 0.5; }
+    }
 
     .step-header {
       display: flex;
+      align-items: center;
       justify-content: space-between;
-      align-items: center;
-      font-weight: 600;
-      font-size: 13px;
+      margin-bottom: 6px;
     }
-    .step-num {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 18px; height: 18px;
-      border-radius: 5px;
-      background: var(--surface);
-      color: var(--muted);
-      font-size: 10.5px;
+
+    .step-action-badge {
+      font-size: 10px;
       font-weight: 700;
-      margin-right: 7px;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 20px;
+      letter-spacing: 0.5px;
+      color: #FFF;
     }
-    .step-selector { color: var(--muted); font-size: 11.5px; margin-top: 5px; }
-    .step-selector code {
-      background: var(--surface);
+
+    .action-click .step-action-badge { background: var(--click-grad); }
+    .action-type .step-action-badge { background: var(--type-grad); }
+    .action-scroll .step-action-badge { background: var(--scroll-grad); }
+    .action-done .step-action-badge { background: var(--success); }
+    .pending .step-action-badge { background: #475569; }
+
+    .step-number {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: var(--surface-glass);
       padding: 1px 5px;
       border-radius: 4px;
-      font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    }
+
+    .step-selector {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    
+    .step-selector code {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.05);
+      padding: 1px 4px;
+      border-radius: 4px;
       font-size: 11px;
     }
-    .step-reasoning { color: var(--muted); font-size: 12px; margin-top: 5px; }
+
+    .step-reasoning {
+      font-size: 12px;
+      color: #ADB9C7;
+      line-height: 1.5;
+      font-style: italic;
+    }
+
     .step-exec {
+      margin-top: 8px;
       font-size: 11px;
-      margin-top: 6px;
       font-weight: 600;
       display: inline-flex;
       align-items: center;
-      gap: 4px;
-      padding: 2px 7px;
-      border-radius: 20px;
-    }
-    .exec-ok { color: var(--success); background: var(--success-dim); }
-    .exec-fail { color: var(--danger); background: var(--danger-dim); }
-
-    .spinner {
-      display: inline-block;
-      width: 10px; height: 10px;
-      border: 2px solid var(--border);
-      border-top-color: var(--navy);
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    #inputArea {
-      flex-shrink: 0;
-      padding: 12px 14px 14px;
-      border-top: 1px solid var(--border);
-      background: #fff;
-    }
-    #taskInput {
-      width: 100%;
-      padding: 9px 10px;
-      font-size: 13.5px;
-      font-family: inherit;
-      box-sizing: border-box;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      resize: none;
-      background: var(--surface);
-    }
-    #taskInput:focus {
-      outline: none;
-      border-color: var(--teal);
-      background: #fff;
-    }
-    .btn-row { display: flex; gap: 8px; margin-top: 8px; }
-    button {
-      padding: 9px 14px;
-      font-size: 12.5px;
-      font-weight: 600;
-      cursor: pointer;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: #fff;
-      font-family: inherit;
-      transition: opacity 0.15s;
-    }
-    button:hover { opacity: 0.9; }
-    #runTaskBtn { flex: 1; background: var(--navy); color: #fff; border: none; }
-    #runTaskBtn:disabled { background: #A7B2C6; cursor: not-allowed; }
-    #stopBtn {
-      display: none;
-      align-items: center;
-      justify-content: center;
       gap: 6px;
-      background: var(--danger);
-      color: #fff;
-      border: none;
+      padding: 3px 8px;
+      border-radius: 6px;
     }
-    #statusLine {
-      font-size: 11.5px;
-      color: var(--muted);
+
+    .exec-ok {
+      color: var(--accent-teal);
+      background: var(--accent-teal-glow);
+    }
+    .exec-fail {
+      color: var(--danger);
+      background: var(--danger-dim);
+    }
+
+    /* --- TELEMETRY DASHBOARD --- */
+    .telemetry-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .telemetry-tile {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 52px;
+    }
+
+    .tile-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .tile-value {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-main);
+      font-family: 'JetBrains Mono', monospace;
+      margin-top: 4px;
+      display: flex;
+      align-items: baseline;
+    }
+
+    .tile-value-unit {
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-left: 2px;
+    }
+
+    .live-stats {
+      display: flex;
+      justify-content: space-around;
+      padding: 8px 0;
+      border-top: 1px solid var(--border);
       margin-top: 8px;
-      min-height: 14px;
+    }
+
+    .stat-badge {
       display: flex;
       align-items: center;
       gap: 6px;
+      font-size: 11.5px;
+      font-weight: 500;
     }
 
-    details { margin-top: 10px; }
-    summary {
-      cursor: pointer;
-      font-size: 11.5px;
-      color: var(--muted);
+    .stat-badge .stat-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+
+    .stat-badge.faces .stat-dot { background: var(--danger); }
+    .stat-badge.dom .stat-dot { background: var(--accent-blue); }
+
+    /* --- INPUT FORM PANEL --- */
+    #inputArea {
+      flex-shrink: 0;
+      background: rgba(9, 11, 17, 0.95);
+      border-top: 1px solid var(--border);
+      padding: 14px 16px;
+      backdrop-filter: blur(16px);
+      z-index: 10;
+    }
+
+    #taskInput {
+      width: 100%;
+      height: 64px;
+      padding: 10px 12px;
+      font-size: 13px;
+      color: var(--text-main);
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      resize: none;
+      font-family: inherit;
+      transition: all 0.2s ease;
+      margin-bottom: 10px;
+    }
+
+    #taskInput:focus {
+      outline: none;
+      border-color: var(--accent-teal);
+      box-shadow: 0 0 8px var(--accent-teal-glow);
+      background: rgba(0, 0, 0, 0.40);
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    button.action-btn {
+      padding: 10px 16px;
+      font-size: 12px;
       font-weight: 600;
+      cursor: pointer;
+      border-radius: 8px;
+      font-family: inherit;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: none;
+    }
+
+    #runTaskBtn {
+      flex: 1;
+      background: linear-gradient(135deg, var(--accent-teal), #00d2ad);
+      color: #090B11;
+      box-shadow: 0 4px 12px var(--accent-teal-glow);
+    }
+
+    #runTaskBtn:hover {
+      box-shadow: 0 6px 16px rgba(8, 247, 205, 0.35);
+      transform: translateY(-1px);
+    }
+
+    #runTaskBtn:disabled {
+      background: #334155;
+      color: #64748B;
+      box-shadow: none;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    #stopBtn {
+      display: none;
+      background: linear-gradient(135deg, var(--danger), #be123c);
+      color: #FFF;
+      box-shadow: 0 4px 12px var(--danger-dim);
+    }
+
+    #stopBtn:hover {
+      box-shadow: 0 6px 16px rgba(244, 63, 94, 0.3);
+      transform: translateY(-1px);
+    }
+
+    #statusLine {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* --- PIPELINE SETTINGS UI --- */
+    .config-label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .config-title {
+      font-size: 12.5px;
+      font-weight: 600;
+    }
+
+    .config-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* --- Glass Binary Pill Switch --- */
+    .pill-group {
+      display: flex;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 2px;
+      width: 140px;
+    }
+
+    .pill-opt {
+      flex: 1;
+      padding: 6px;
+      font-size: 10.5px;
+      font-weight: 600;
+      text-align: center;
+      cursor: pointer;
+      border-radius: 6px;
+      transition: all 0.2s ease;
+      color: var(--text-muted);
       user-select: none;
     }
-    #debugCapture { margin-top: 8px; }
-    #debugCapture button { width: 100%; background: var(--surface); }
-    #debugStatus { font-size: 11.5px; color: var(--muted); margin-top: 7px; }
-    #debugPreview { width: 100%; margin-top: 7px; border: 1px solid var(--border); border-radius: 6px; display: none; }
+
+    .pill-opt.active {
+      color: #090B11;
+      background: var(--accent-teal);
+      box-shadow: 0 2px 6px rgba(8, 247, 205, 0.3);
+    }
+
+    /* --- Switch Toggle Widget --- */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #334155;
+      transition: .3s;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+    }
+
+    .slider::before {
+      position: absolute;
+      content: "";
+      height: 12px; width: 12px;
+      left: 3px; bottom: 3px;
+      background-color: #ECEFF4;
+      transition: .3s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: rgba(62, 133, 255, 0.4);
+      border-color: var(--accent-blue);
+    }
+
+    input:checked + .slider::before {
+      transform: translateX(16px);
+      background-color: var(--accent-blue);
+      box-shadow: 0 0 6px var(--accent-blue);
+    }
+
+    .pipeline-option-card {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 4px 0;
+    }
+
+    /* --- HISTORY PANEL --- */
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow-y: auto;
+      flex-1: 1;
+    }
+
+    .history-card {
+      background: var(--surface-glass);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .history-card:hover {
+      background: var(--surface-active);
+      border-color: var(--border-hover);
+    }
+
+    .history-task-text {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-main);
+      margin-bottom: 4px;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+
+    .history-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    .history-meta span {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* --- SUGGESTION CHIPS --- */
+    .chips-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .chip {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 4px 10px;
+      border-radius: 16px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .chip:hover {
+      background: var(--surface-active);
+      color: var(--text-main);
+      border-color: var(--border-hover);
+    }
+
+    /* --- DEBUG DRAWER --- */
+    details {
+      margin-top: 4px;
+    }
+
+    summary {
+      cursor: pointer;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 600;
+      user-select: none;
+      padding: 4px 0;
+    }
+
+    summary:hover {
+      color: var(--text-main);
+    }
+
+    #debugCapture {
+      margin-top: 8px;
+    }
+
+    #debugCapture button {
+      width: 100%;
+      background: var(--surface-glass);
+      color: var(--text-muted);
+    }
+
+    #debugCapture button:hover {
+      background: var(--surface-active);
+      color: var(--text-main);
+    }
+
+    #debugStatus {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 6px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    #debugPreview {
+      width: 100%;
+      margin-top: 8px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: none;
+    }
+
     #debugDomList {
-      max-height: 100px;
+      max-height: 120px;
       overflow-y: auto;
       font-size: 10.5px;
-      font-family: ui-monospace, "SF Mono", Consolas, monospace;
-      margin-top: 7px;
-      background: var(--surface);
+      font-family: 'JetBrains Mono', monospace;
+      margin-top: 8px;
+      background: rgba(0, 0, 0, 0.2);
       border-radius: 6px;
-      padding: 6px 8px;
+      padding: 8px;
+      border: 1px solid var(--border);
     }
-    .sensitive { color: var(--danger); font-weight: 700; }
+
+    .spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(8, 247, 205, 0.2);
+      border-top-color: var(--accent-teal);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
+
+  <!-- Sleek Header -->
   <header>
-    <svg width="26" height="26" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M16 2L28 6.5V15C28 22.5 22.8 27.8 16 30C9.2 27.8 4 22.5 4 15V6.5L16 2Z" fill="#1D3159" stroke="#0FBFA6" stroke-width="1.4"/>
-      <circle cx="16" cy="15" r="5" stroke="#0FBFA6" stroke-width="1.5" fill="none"/>
-      <circle cx="16" cy="15" r="1.6" fill="#0FBFA6"/>
-    </svg>
+    <div class="brand-logo">
+      <svg width="18" height="18" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M16 2L28 6.5V15C28 22.5 22.8 27.8 16 30C9.2 27.8 4 22.5 4 15V6.5L16 2Z" fill="rgba(8, 247, 205, 0.1)" stroke="url(#logo-grad)" stroke-width="2"/>
+        <circle cx="16" cy="15" r="5" stroke="#08F7CD" stroke-width="2" fill="none"/>
+        <circle cx="16" cy="15" r="2.5" fill="#3E85FF"/>
+        <defs>
+          <linearGradient id="logo-grad" x1="4" y1="2" x2="28" y2="30" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#08F7CD"/>
+            <stop offset="1" stop-color="#3E85FF"/>
+          </linearGradient>
+        </defs>
+      </svg>
+    </div>
     <div class="brand-text">
-      <h1>Vision Agent</h1>
-      <div class="subtitle"><span class="pulse-dot"></span>On-device redaction active</div>
+      <h1>Vision Shield</h1>
+      <div class="subtitle">
+        <span class="pulse-dot"></span>
+        <span>Local Privacy Engine Active</span>
+      </div>
     </div>
   </header>
 
-  <div id="log">
-    <div class="empty-state" id="emptyState">
-      <svg width="34" height="34" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M16 2L28 6.5V15C28 22.5 22.8 27.8 16 30C9.2 27.8 4 22.5 4 15V6.5L16 2Z" stroke="#6B7280" stroke-width="1.4"/>
-        <circle cx="16" cy="15" r="5" stroke="#6B7280" stroke-width="1.5"/>
-      </svg>
-      <div>Give the agent a task below to get started.</div>
+  <!-- Navigation Tabs -->
+  <nav class="tabs">
+    <button class="tab-btn active" id="tabRunBtn">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Agent
+    </button>
+    <button class="tab-btn" id="tabPipelineBtn">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Pipeline
+    </button>
+    <button class="tab-btn" id="tabHistoryBtn">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      History
+    </button>
+  </nav>
+
+  <!-- Panel Contents -->
+  <div class="tab-content">
+    
+    <!-- RUN TERMINAL TAB -->
+    <div class="tab-pane active" id="tabContentRun">
+      
+      <!-- Telemetry Dashboard Card (Dynamic Updates) -->
+      <div class="glass-card">
+        <div class="section-title">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
+          Real-time Shield Analytics
+        </div>
+        <div class="telemetry-grid">
+          <div class="telemetry-tile">
+            <span class="tile-label">AI Inference</span>
+            <span class="tile-value" id="metricModelTime">-<span class="tile-value-unit">ms</span></span>
+          </div>
+          <div class="telemetry-tile">
+            <span class="tile-label">DOM PII Scan</span>
+            <span class="tile-value" id="metricDomTime">-<span class="tile-value-unit">ms</span></span>
+          </div>
+          <div class="telemetry-tile">
+            <span class="tile-label">Cloud VLM</span>
+            <span class="tile-value" id="metricVlmTime">-<span class="tile-value-unit">ms</span></span>
+          </div>
+          <div class="telemetry-tile">
+            <span class="tile-label">Total Step</span>
+            <span class="tile-value" id="metricTotalTime">-<span class="tile-value-unit">ms</span></span>
+          </div>
+        </div>
+        <div class="live-stats">
+          <div class="stat-badge faces">
+            <span class="stat-dot"></span>
+            <span>Faces Redacted: <strong id="statFacesCount">0</strong></span>
+          </div>
+          <div class="stat-badge dom">
+            <span class="stat-dot"></span>
+            <span>PII Masked: <strong id="statDomFieldsCount">0</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Execution Log Timeline -->
+      <div id="log">
+        <div class="empty-state" id="emptyState">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 8v4l3 3"/>
+          </svg>
+          <div class="empty-text">Enter manual tasks or select suggestions to trigger the local perception loop.</div>
+        </div>
+      </div>
     </div>
+
+    <!-- PIPELINE CONFIG TAB -->
+    <div class="tab-pane" id="tabContentPipeline">
+      
+      <div class="glass-card">
+        <div class="section-title">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Privacy Configuration
+        </div>
+        <div class="pipeline-option-card">
+          <div class="config-label-row">
+            <div>
+              <div class="config-title">Redaction Mask Style</div>
+              <div class="config-desc">Visual anonymization filter style</div>
+            </div>
+            <div class="pill-group">
+              <div class="pill-opt active" id="redactSolidBtn">Blackout</div>
+              <div class="pill-opt" id="redactBlurBtn">Blur</div>
+            </div>
+          </div>
+          
+          <div class="divider"></div>
+          
+          <div class="config-label-row">
+            <div>
+              <div class="config-title">Local Face Detector</div>
+              <div class="config-desc">ONNX deep-learning scan for faces</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggleModel" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="config-label-row">
+            <div>
+              <div class="config-title">DOM PII Scans</div>
+              <div class="config-desc">Strips credit cards, SSN, OTPs from text</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="toggleDom" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Tester Drawer -->
+      <div class="glass-card">
+        <details>
+          <summary>Extension Diagnostics & Capture Only</summary>
+          <div id="debugCapture">
+            <button id="captureBtn" class="action-btn">Capture &amp; Sanitize Page State</button>
+            <div id="debugStatus">Pipeline status: Idle.</div>
+            <img id="debugPreview" alt="Sanitized preview" />
+            <div id="debugDomList"></div>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <!-- TASK HISTORY TAB -->
+    <div class="tab-pane" id="tabContentHistory">
+      <div class="section-title">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Recent Workflows
+      </div>
+      <div class="history-list" id="historyList">
+        <div class="empty-state" style="margin-top: 10px;">
+          <div class="empty-text">No runs in this session yet. Completed tasks will show up here.</div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
+  <!-- Command Input Area -->
   <div id="inputArea">
-    <textarea id="taskInput" rows="2" placeholder="e.g. click the login button"></textarea>
+    <div class="chips-row" id="chipsRow">
+      <span class="chip" data-task="Search for shoes and filter by pricing">Search Store</span>
+      <span class="chip" data-task="Fill in the registration form and click submit">Fill Forms</span>
+      <span class="chip" data-task="Find the sign in button and click it">Sign In</span>
+    </div>
+    
+    <textarea id="taskInput" placeholder="Enter objective for the agent..."></textarea>
+    
     <div class="btn-row">
-      <button id="runTaskBtn">Run Agent</button>
-      <button id="stopBtn" title="Stop the agent now" aria-label="Stop agent">
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10" rx="1.5"/></svg>
-        Stop
+      <button id="runTaskBtn" class="action-btn">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Execute Loop
+      </button>
+      <button id="stopBtn" class="action-btn" title="Halt current loop iteration">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect width="10" height="10" rx="1.5"/></svg>
+        Halt Agent
       </button>
     </div>
-    <div id="statusLine">Idle.</div>
-
-    <details>
-      <summary>Debug: capture &amp; sanitize only</summary>
-      <div id="debugCapture">
-        <button id="captureBtn">Capture &amp; Sanitize Current Tab</button>
-        <div id="debugStatus">Idle.</div>
-        <img id="debugPreview" />
-        <div id="debugDomList"></div>
-      </div>
-    </details>
+    <div id="statusLine">Local shield active. Idle.</div>
   </div>
 
   <script src="sidepanel.js"></script>

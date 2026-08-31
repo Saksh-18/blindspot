@@ -20,8 +20,9 @@ import json
 import os
 import re
 
+import traceback
 from groq import Groq
-from schemas import AgentAction, AgentStepRequest
+from schemas import AgentAction, AgentStepRequest, ActionType, ScrollDirection
 
 PROVIDER = "groq"  # "groq" | "local" | "cloud"
 
@@ -31,14 +32,61 @@ _groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 
 async def get_next_action(req: AgentStepRequest) -> AgentAction:
-    if PROVIDER == "groq":
-        raw = await _call_groq(req)
-    elif PROVIDER == "local":
-        raw = await _call_local(req)
-    else:
-        raw = await _call_cloud(req)
+    try:
+        if PROVIDER == "groq":
+            raw = await _call_groq(req)
+        elif PROVIDER == "local":
+            raw = await _call_local(req)
+        else:
+            raw = await _call_cloud(req)
 
-    return AgentAction(**raw)
+        # Normalize VLM JSON response to prevent Pydantic validation errors
+        if not isinstance(raw, dict):
+            raw = {"action": "wait", "reasoning": f"Expected JSON dict, got: {type(raw)}"}
+        
+        # Normalize action field
+        action_val = str(raw.get("action", "")).strip().lower()
+        # Handle common model naming variations
+        if action_val in ["click_element", "click_btn", "click_button", "press"]:
+            action_val = "click"
+        elif action_val in ["type_text", "input", "write", "fill"]:
+            action_val = "type"
+        elif action_val in ["scroll_page", "swipe"]:
+            action_val = "scroll"
+        elif action_val in ["completed", "finish", "task_complete"]:
+            action_val = "done"
+        
+        # Ensure it falls back to a valid enum option
+        valid_actions = {a.value for a in ActionType}
+        if action_val not in valid_actions:
+            action_val = "wait"
+        
+        raw["action"] = action_val
+
+        # Ensure reasoning is present
+        if "reasoning" not in raw or not raw["reasoning"]:
+            raw["reasoning"] = f"Decided to {action_val} based on page state."
+
+        # Ensure task_complete matches action
+        raw["task_complete"] = (action_val == "done")
+
+        # Scroll direction validation
+        if action_val == "scroll":
+            sd = str(raw.get("scroll_direction", "")).strip().lower()
+            if sd not in ["up", "down"]:
+                raw["scroll_direction"] = "down"
+            if not isinstance(raw.get("scroll_amount_px"), int):
+                raw["scroll_amount_px"] = 400
+
+        return AgentAction(**raw)
+
+    except Exception as e:
+        print("=== EXCEPTION CAUGHT IN GET_NEXT_ACTION ===")
+        traceback.print_exc()
+        return AgentAction(
+            action=ActionType.ask_user,
+            reasoning=f"System Error: {str(e)}. Please check backend logs or rate limits and try again."
+        )
 
 
 async def _call_groq(req: AgentStepRequest) -> dict:

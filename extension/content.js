@@ -165,15 +165,18 @@ function sanitizeDom() {
   return nodes;
 }
 
-async function captureAndSanitize() {
+async function captureAndSanitize(options = {}) {
   const timings = {};
+  const runModel = options.runModel !== false;
+  const runDom = options.runDom !== false;
+  const redactionMode = options.redactionMode || "blackout";
 
   const t0 = performance.now();
   const dom = sanitizeDom();
   timings.sanitizeDomMs = performance.now() - t0;
 
   const t1 = performance.now();
-  const textPiiMatches = findTextPii(); // OTPs, receipt/order numbers, card numbers, SSNs in plain text
+  const textPiiMatches = runDom ? findTextPii() : []; // OTPs, receipt/order numbers, card numbers, SSNs in plain text
   timings.findTextPiiMs = performance.now() - t1;
 
   // Screenshot capture requires chrome.tabs.captureVisibleTab, which only
@@ -195,14 +198,14 @@ async function captureAndSanitize() {
   // Model-based regions (faces, PII in genuine image content) PLUS the boxes we just
   // found by scanning text nodes.
   const t3 = performance.now();
-  const modelRegions = await detectSensitiveRegions(rawImageDataUrl);
+  const modelRegions = runModel ? await detectSensitiveRegions(rawImageDataUrl) : [];
   timings.detectSensitiveRegionsMs = performance.now() - t3;
 
   const textRegions = textPiiMatches.map((m) => m.box);
   const regions = [...modelRegions, ...textRegions];
 
   const t4 = performance.now();
-  const redactedImageDataUrl = await redactImage(rawImageDataUrl, regions);
+  const redactedImageDataUrl = await redactImage(rawImageDataUrl, regions, redactionMode);
   timings.redactImageMs = performance.now() - t4;
 
   console.log(`sanitizeDom returned ${dom.length} elements (capped at 150)`);
@@ -319,7 +322,7 @@ function setNativeValue(el, value) {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "CAPTURE_AND_SANITIZE") {
-    captureAndSanitize()
+    captureAndSanitize(msg.options)
       .then(sendResponse)
       .catch((err) => {
         console.error("captureAndSanitize failed:", err);

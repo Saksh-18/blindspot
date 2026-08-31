@@ -21,11 +21,12 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(consol
  *  6. repeat until action.action === "done" (never trust task_complete alone —
  *     see the loop in the START_TASK handler below)
  */
-async function runAgentStep(tabId, task, history = [], signal) {
+async function runAgentStep(tabId, task, history = [], signal, options = {}) {
   const tTotalStart = performance.now();
   console.time("capture+sanitize (content script)");
   const capture = await chrome.tabs.sendMessage(tabId, {
     type: "CAPTURE_AND_SANITIZE",
+    options,
   });
   console.timeEnd("capture+sanitize (content script)");
   // capture = { redactedImageDataUrl, sanitizedDom, timings, redactionReport }
@@ -102,6 +103,7 @@ async function runAgentStep(tabId, task, history = [], signal) {
     body: JSON.stringify(telemetry),
   }).catch((e) => console.warn("Failed to POST telemetry payload:", e));
 
+  action.telemetry = telemetry;
   return action;
 }
 
@@ -155,7 +157,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           chrome.runtime.sendMessage({ type: "STEP_STARTED", step: steps + 1 }).catch(() => {});
 
           currentAbortController = new AbortController();
-          action = await runAgentStep(tab.id, msg.task, history, currentAbortController.signal);
+          action = await runAgentStep(tab.id, msg.task, history, currentAbortController.signal, msg.options);
           currentAbortController = null;
           history.push(action);
           steps++;

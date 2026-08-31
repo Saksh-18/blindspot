@@ -22,7 +22,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["models/*", "vision/*"],
+      "resources": ["models/*", "vision/*", "vision/lib/*"],
       "matches": ["<all_urls>"]
     }
   ]
