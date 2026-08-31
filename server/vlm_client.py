@@ -119,8 +119,9 @@ def _build_prompt(req: AgentStepRequest) -> str:
         exec_result = getattr(a, "executionResult", None)
         if exec_result is not None:
             matched = exec_result.get("matched") if isinstance(exec_result, dict) else None
+            reason = exec_result.get("reason") if isinstance(exec_result, dict) else None
             if matched is False:
-                line += "  [FAILED: selector not found on page — that element doesn't exist, pick a different one]"
+                line += f"  [FAILED ({reason or 'unknown'}) — pick a different element or approach]"
             elif matched is True:
                 line += "  [executed successfully]"
         return line
@@ -142,9 +143,15 @@ Actions taken so far, and whether they actually worked:
 Look at the CURRENT screenshot carefully before deciding. Only choose
 "done" if the screenshot clearly shows the task is now complete — do not
 mark a click or type action as done in the same turn you perform it; you
-have not seen its effect yet. If a previous action failed (selector not
-found), do not repeat the same selector — find a different one from the
-current DOM list above.
+have not seen its effect yet. If a previous action failed, check why (shown
+in brackets above) and try a different element or approach — do not repeat
+the exact same failed action.
+
+Fields marked [SENSITIVE] in the DOM list have had their real content
+redacted before it ever reached you — you cannot see what's actually in
+them, and typing a guessed value into one will be blocked. If the task
+genuinely requires filling a sensitive field (e.g. a password), respond
+with "ask_user" instead of guessing.
 
 Decide the single next action. Respond with ONLY a JSON object, no prose,
 matching this shape:

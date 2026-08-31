@@ -3,8 +3,8 @@
   "name": "Privacy-Preserving Vision Agent",
   "version": "0.1.0",
   "description": "On-device visual perception + PII redaction before any screen context leaves the browser.",
-  "permissions": ["activeTab", "scripting", "storage", "tabs"],
-  "host_permissions": ["http://localhost:8000/*"],
+  "permissions": ["activeTab", "scripting", "storage", "tabs", "sidePanel"],
+  "host_permissions": ["http://localhost:8000/*", "<all_urls>"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -12,12 +12,13 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": ["vision/lib/ort.min.js", "content.js"],
       "run_at": "document_idle"
     }
   ],
-  "action": {
-    "default_popup": "popup/popup.html"
+  "action": {},
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
   },
   "web_accessible_resources": [
     {

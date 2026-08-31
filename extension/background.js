@@ -4,6 +4,12 @@
 
 const SERVER_URL = "http://localhost:8000/agent/step";
 
+// Makes clicking the toolbar icon open the side panel (instead of doing
+// nothing, now that there's no default_popup). The side panel stays open
+// across page navigation and doesn't close on losing focus like a popup
+// did — no more reloading the extension just to click it again.
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
+
 /**
  * One iteration of the loop:
  *  1. ask content.js for a sanitized DOM snapshot + trigger a screenshot capture
@@ -15,12 +21,18 @@ const SERVER_URL = "http://localhost:8000/agent/step";
  *  6. repeat until action.action === "done" (never trust task_complete alone —
  *     see the loop in the START_TASK handler below)
  */
-async function runAgentStep(tabId, task, history = []) {
+async function runAgentStep(tabId, task, history = [], signal) {
+  const tTotalStart = performance.now();
+  console.time("capture+sanitize (content script)");
   const capture = await chrome.tabs.sendMessage(tabId, {
     type: "CAPTURE_AND_SANITIZE",
   });
-  // capture = { redactedImageDataUrl, sanitizedDom, redactionReport }
+  console.timeEnd("capture+sanitize (content script)");
+  // capture = { redactedImageDataUrl, sanitizedDom, timings, redactionReport }
+  console.log(`Sending ${capture.sanitizedDom.length} DOM elements, image ~${Math.round(capture.redactedImageDataUrl.length / 1024)}KB`);
 
+  const tNetworkStart = performance.now();
+  console.time("server round-trip (network + VLM inference)");
   const response = await fetch(SERVER_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -30,19 +42,32 @@ async function runAgentStep(tabId, task, history = []) {
       dom: capture.sanitizedDom,
       history,
     }),
+    signal,
   });
+  console.timeEnd("server round-trip (network + VLM inference)");
+  const serverRoundTripMs = performance.now() - tNetworkStart;
 
   if (!response.ok) {
-    throw new Error(`Server error ${response.status}`);
+    let errMsg = `Server error ${response.status}`;
+    try {
+      const errJson = await response.json();
+      if (errJson && errJson.detail) {
+        errMsg += `: ${errJson.detail}`;
+      }
+    } catch (_) {}
+    throw new Error(errMsg);
   }
 
   const action = await response.json(); // matches shared/action_schema.json
 
+  let executeMs = 0;
   if (action.action !== "done" && action.action !== "wait" && action.action !== "ask_user") {
+    const tExecStart = performance.now();
     const execResult = await chrome.tabs.sendMessage(tabId, {
       type: "EXECUTE_ACTION",
       action,
     });
+    executeMs = performance.now() - tExecStart;
     // Attach what actually happened so the model sees it on the *next* turn —
     // it shouldn't be trusted to already know this about its own action.
     action.executionResult = execResult;
@@ -51,8 +76,40 @@ async function runAgentStep(tabId, task, history = []) {
     }
   }
 
+  const totalStepMs = performance.now() - tTotalStart;
+
+  // Aggregate telemetry timings
+  const telemetry = {
+    sanitizeDomMs: capture.timings?.sanitizeDomMs || 0,
+    findTextPiiMs: capture.timings?.findTextPiiMs || 0,
+    captureVisibleTabMs: capture.timings?.captureVisibleTabMs || 0,
+    detectSensitiveRegionsMs: capture.timings?.detectSensitiveRegionsMs || 0,
+    redactImageMs: capture.timings?.redactImageMs || 0,
+    serverRoundTripMs,
+    executeMs,
+    totalStepMs,
+    redactedBoxes: capture.redactedBoxes || [],
+    redactionReport: capture.redactionReport || {}
+  };
+
+  console.log("Step Telemetry Data:", telemetry);
+
+  // Send to eval telemetry endpoint on server
+  const evalUrl = SERVER_URL.replace("/agent/step", "") + "/eval/telemetry";
+  fetch(evalUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(telemetry),
+  }).catch((e) => console.warn("Failed to POST telemetry payload:", e));
+
   return action;
 }
+
+let taskAborted = false;
+// Aborts whatever fetch is currently in flight (the VLM round-trip is the
+// longest single wait in a step) so STOP_TASK takes effect immediately
+// instead of only being checked between steps.
+let currentAbortController = null;
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "CAPTURE_TAB") {
@@ -69,7 +126,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // async response
   }
 
+  if (msg.type === "STOP_TASK") {
+    taskAborted = true;
+    currentAbortController?.abort();
+    sendResponse({ ok: true });
+    return;
+  }
+
   if (msg.type === "START_TASK") {
+    taskAborted = false;
     (async () => {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       let history = [];
@@ -79,9 +144,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
       try {
         do {
-          action = await runAgentStep(tab.id, msg.task, history);
+          if (taskAborted) {
+            sendResponse({ done: false, stopped: true, steps, history });
+            return;
+          }
+
+          // Let the side panel know a step is starting — it stays open for
+          // the whole loop, so it can show live progress instead of one
+          // blank "Running..." for however long the whole task takes.
+          chrome.runtime.sendMessage({ type: "STEP_STARTED", step: steps + 1 }).catch(() => {});
+
+          currentAbortController = new AbortController();
+          action = await runAgentStep(tab.id, msg.task, history, currentAbortController.signal);
+          currentAbortController = null;
           history.push(action);
           steps++;
+
+          chrome.runtime.sendMessage({ type: "STEP_FINISHED", step: steps, action }).catch(() => {});
           // IMPORTANT: we only stop on action === "done" — a click/type
           // response claiming task_complete: true in the SAME turn it
           // performed the action is not trusted, since the model hasn't
@@ -92,6 +171,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         sendResponse({ done: true, steps, history });
       } catch (err) {
+        currentAbortController = null;
+        if (err.name === "AbortError" || taskAborted) {
+          sendResponse({ done: false, stopped: true, steps, history });
+          return;
+        }
         console.error("Agent loop failed:", err);
         sendResponse({ done: false, error: err.message, steps, history });
       }

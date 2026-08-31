@@ -38,20 +38,43 @@ function findTextPii() {
   const matches = [];
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
-      const parentTag = node.parentElement?.tagName;
-      if (!node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      const parent = node.parentElement;
+      if (!parent) return NodeFilter.FILTER_REJECT;
+      const parentTag = parent.tagName;
       if (["SCRIPT", "STYLE", "NOSCRIPT"].includes(parentTag)) return NodeFilter.FILTER_REJECT;
+
+      const val = node.nodeValue;
+      if (!val || !val.trim()) return NodeFilter.FILTER_REJECT;
+
+      // Cheap regex pre-filtering before layout/computed-style reading
+      let hasPiiMatch = false;
+      for (const { regex } of TEXT_PII_PATTERNS) {
+        if (regex.test(val)) {
+          hasPiiMatch = true;
+          break;
+        }
+      }
+      if (!hasPiiMatch) return NodeFilter.FILTER_REJECT;
+
+      // Check visibility/rendering only on potential PII matches
+      if (parent.offsetParent === null && getComputedStyle(parent).position !== "fixed") {
+        return NodeFilter.FILTER_REJECT;
+      }
       return NodeFilter.FILTER_ACCEPT;
     },
   });
 
   let node;
   while ((node = walker.nextNode())) {
+    const val = node.nodeValue;
     for (const { type, regex } of TEXT_PII_PATTERNS) {
-      const match = node.nodeValue.match(regex);
+      const match = val.match(regex);
       if (match) {
-        const rect = node.parentElement.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) continue;
+        const parent = node.parentElement;
+        if (!parent) continue;
+        const rect = parent.getBoundingClientRect();
+        // Only regions actually visible in the current viewport matter
+        if (!isInViewport(rect)) continue;
         matches.push({
           type,
           matchedText: match[0],
@@ -62,6 +85,17 @@ function findTextPii() {
     }
   }
   return matches;
+}
+
+function isInViewport(rect) {
+  return (
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.bottom > 0 &&
+    rect.right > 0 &&
+    rect.top < window.innerHeight &&
+    rect.left < window.innerWidth
+  );
 }
 
 /**
@@ -88,10 +122,16 @@ function maskPiiInText(text) {
  * This intentionally never sends innerText of matched elements.
  */
 function sanitizeDom() {
+  const MAX_NODES = 150; // hard cap — past this the prompt gets huge and slow for no benefit
   const nodes = [];
-  document.querySelectorAll("button, a, input, select, textarea, [role]").forEach((el, i) => {
+  const candidates = document.querySelectorAll("button, a, input, select, textarea, [role]");
+  const elementsToIndex = [];
+
+  for (let i = 0; i < candidates.length && nodes.length < MAX_NODES; i++) {
+    const el = candidates[i];
     const rect = el.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
+    // Only elements actually visible in the current viewport
+    if (!isInViewport(rect)) continue;
 
     const rawText = (el.innerText || el.value || "").slice(0, 80);
     const { masked, hit } = maskPiiInText(rawText);
@@ -103,7 +143,9 @@ function sanitizeDom() {
       hit;
 
     const selector = el.id ? `#${el.id}` : `[data-agent-idx="${i}"]`;
-    if (!el.id) el.setAttribute("data-agent-idx", i);
+    if (!el.id) {
+      elementsToIndex.push({ el, idx: i });
+    }
 
     nodes.push({
       selector,
@@ -113,13 +155,26 @@ function sanitizeDom() {
       box: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
       sensitive: isSensitive,
     });
-  });
+  }
+
+  // Defer writing attributes to avoid layout thrashing while reading bounds
+  for (const { el, idx } of elementsToIndex) {
+    el.setAttribute("data-agent-idx", idx);
+  }
+
   return nodes;
 }
 
 async function captureAndSanitize() {
+  const timings = {};
+
+  const t0 = performance.now();
   const dom = sanitizeDom();
+  timings.sanitizeDomMs = performance.now() - t0;
+
+  const t1 = performance.now();
   const textPiiMatches = findTextPii(); // OTPs, receipt/order numbers, card numbers, SSNs in plain text
+  timings.findTextPiiMs = performance.now() - t1;
 
   // Screenshot capture requires chrome.tabs.captureVisibleTab, which only
   // works from the background/service-worker context — so we request the
@@ -127,21 +182,39 @@ async function captureAndSanitize() {
   const { detectSensitiveRegions } = await import(chrome.runtime.getURL("vision/detector.js"));
   const { redactImage } = await import(chrome.runtime.getURL("vision/redact.js"));
 
+  const t2 = performance.now();
   const rawImageDataUrl = await chrome.runtime.sendMessage({ type: "CAPTURE_TAB" });
+  timings.captureVisibleTabMs = performance.now() - t2;
+  if (!rawImageDataUrl) {
+    throw new Error(
+      "Tab capture failed — on a file:// page this usually means " +
+        '"Allow access to file URLs" is off for this extension (chrome://extensions).'
+    );
+  }
 
-  // Model-based regions (faces, PII in genuine image content — currently a
-  // stub) PLUS the boxes we just found by scanning text nodes. The text-node
-  // pass covers most real-world OTP/receipt/order-number cases since they're
-  // actually rendered as DOM text, not baked into an image.
+  // Model-based regions (faces, PII in genuine image content) PLUS the boxes we just
+  // found by scanning text nodes.
+  const t3 = performance.now();
   const modelRegions = await detectSensitiveRegions(rawImageDataUrl);
+  timings.detectSensitiveRegionsMs = performance.now() - t3;
+
   const textRegions = textPiiMatches.map((m) => m.box);
   const regions = [...modelRegions, ...textRegions];
 
+  const t4 = performance.now();
   const redactedImageDataUrl = await redactImage(rawImageDataUrl, regions);
+  timings.redactImageMs = performance.now() - t4;
+
+  console.log(`sanitizeDom returned ${dom.length} elements (capped at 150)`);
 
   return {
     redactedImageDataUrl,
     sanitizedDom: dom,
+    timings,
+    redactedBoxes: [
+      ...modelRegions.map(r => ({ type: "face", box: { x: r.x, y: r.y, w: r.w, h: r.h } })),
+      ...textPiiMatches.map(m => ({ type: m.type, box: m.box }))
+    ],
     redactionReport: {
       domFieldsRedacted: dom.filter((n) => n.sensitive).length,
       textPiiRedacted: textPiiMatches.length,
@@ -158,16 +231,13 @@ async function captureAndSanitize() {
 function executeAction(action) {
   if (action.action === "click") {
     const el = document.querySelector(action.selector);
-    if (!el) return { matched: false };
+    if (!el) return { matched: false, reason: "not_found" };
+    if (el.disabled) return { matched: false, reason: "disabled" };
     el.click();
     return { matched: true };
   }
   if (action.action === "type") {
-    const el = document.querySelector(action.selector);
-    if (!el) return { matched: false };
-    el.value = action.text;
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    return { matched: true };
+    return typeIntoElement(action.selector, action.text);
   }
   if (action.action === "scroll") {
     window.scrollBy(0, action.scroll_direction === "down" ? action.scroll_amount_px : -action.scroll_amount_px);
@@ -177,9 +247,84 @@ function executeAction(action) {
   return { matched: true };
 }
 
+/**
+ * Handles the "type" action across the real variety of form fields a page
+ * can have: plain inputs/textareas, React/Vue-controlled inputs (need the
+ * native value setter, or the framework never sees the change), <select>
+ * dropdowns, and contenteditable elements.
+ */
+function typeIntoElement(selector, text) {
+  const el = document.querySelector(selector);
+  if (!el) return { matched: false, reason: "not_found" };
+  if (el.disabled || el.readOnly) return { matched: false, reason: "disabled_or_readonly" };
+
+  // The server never saw this field's real content (it was redacted before
+  // anything left the browser), so any text the model wants to type here is
+  // a guess, not a legitimate value — e.g. it cannot actually know the
+  // user's real password. Block it rather than let a hallucinated value
+  // land in a sensitive field.
+  const isSensitiveField =
+    SENSITIVE_SELECTORS.some((sel) => el.matches(sel)) ||
+    SENSITIVE_KEYWORD_REGEX.test(el.getAttribute("aria-label") || "") ||
+    SENSITIVE_KEYWORD_REGEX.test(el.name || "");
+  if (isSensitiveField) {
+    return { matched: false, reason: "blocked_sensitive_field" };
+  }
+
+  el.focus();
+
+  if (el.tagName === "SELECT") {
+    const opt = Array.from(el.options).find(
+      (o) => o.value === text || o.textContent.trim().toLowerCase() === text.trim().toLowerCase()
+    );
+    if (!opt) return { matched: false, reason: "option_not_found" };
+    el.value = opt.value;
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return { matched: true };
+  }
+
+  if (el.isContentEditable) {
+    el.textContent = text;
+    el.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    return { matched: true };
+  }
+
+  if ("value" in el) {
+    setNativeValue(el, text);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return { matched: true };
+  }
+
+  return { matched: false, reason: "unsupported_element" };
+}
+
+/**
+ * React (and some other frameworks) track input values through a custom
+ * property descriptor installed on the native input/textarea prototype.
+ * Setting `el.value = x` directly bypasses that tracker — the field LOOKS
+ * updated on screen, but React's internal state never changes, so
+ * validation and form submission silently break. Calling the native
+ * setter explicitly makes React's own change-tracking fire correctly.
+ */
+function setNativeValue(el, value) {
+  const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+  const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+  if (nativeSetter) {
+    nativeSetter.call(el, value);
+  } else {
+    el.value = value;
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "CAPTURE_AND_SANITIZE") {
-    captureAndSanitize().then(sendResponse);
+    captureAndSanitize()
+      .then(sendResponse)
+      .catch((err) => {
+        console.error("captureAndSanitize failed:", err);
+        sendResponse({ error: err.message });
+      });
     return true;
   }
   if (msg.type === "EXECUTE_ACTION") {
