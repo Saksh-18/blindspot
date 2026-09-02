@@ -1,359 +1,435 @@
-// sidepanel.js
-// Handles tab navigation, pipeline state controls, metric dashboard updates, and history tracking.
+// sidepanel.js — Vision Shield side panel
+// Same message contract as before: START_TASK / STOP_TASK to the background,
+// STEP_STARTED / STEP_FINISHED back, CAPTURE_AND_SANITIZE to the content script.
+// Optional new hook: background may send { type: "STAGE", stage: 0..4 } to drive
+// the pipeline strip with real timings instead of the optimistic animation below.
 
-const runTaskBtn = document.getElementById("runTaskBtn");
-const stopBtn = document.getElementById("stopBtn");
-const taskInput = document.getElementById("taskInput");
-const statusLine = document.getElementById("statusLine");
-const log = document.getElementById("log");
-const emptyState = document.getElementById("emptyState");
+const $ = (id) => document.getElementById(id);
 
-// Tabs Selection Elements
-const tabRunBtn = document.getElementById("tabRunBtn");
-const tabPipelineBtn = document.getElementById("tabPipelineBtn");
-const tabHistoryBtn = document.getElementById("tabHistoryBtn");
-
-const tabContentRun = document.getElementById("tabContentRun");
-const tabContentPipeline = document.getElementById("tabContentPipeline");
-const tabContentHistory = document.getElementById("tabContentHistory");
-
-// Configuration State Toggles
-const redactSolidBtn = document.getElementById("redactSolidBtn");
-const redactBlurBtn = document.getElementById("redactBlurBtn");
-const toggleModel = document.getElementById("toggleModel");
-const toggleDom = document.getElementById("toggleDom");
-
-// Live Telemetry Elements
-const metricModelTime = document.getElementById("metricModelTime");
-const metricDomTime = document.getElementById("metricDomTime");
-const metricVlmTime = document.getElementById("metricVlmTime");
-const metricTotalTime = document.getElementById("metricTotalTime");
-const statFacesCount = document.getElementById("statFacesCount");
-const statDomFieldsCount = document.getElementById("statDomFieldsCount");
-
-// Options Configuration
-let options = {
-  redactionMode: "blackout",
-  runModel: true,
-  runDom: true
+const el = {
+  rail: $("rail"), railBtn: $("railBtn"), scrim: $("scrim"),
+  themeBtn: $("themeBtn"), themeIcon: $("themeIcon"), themeLabel: $("themeLabel"),
+  paneTitle: $("paneTitle"), paneSub: $("paneSub"), statusChip: $("statusChip"),
+  stageName: $("stageName"), stageNote: $("stageNote"),
+  log: $("log"), emptyState: $("emptyState"),
+  shieldDot: $("shieldDot"), shieldCount: $("shieldCount"),
+  statFaces: $("statFaces"), statFields: $("statFields"), maskedList: $("maskedList"),
+  previewFrame: $("previewFrame"),
+  tTotal: $("tTotal"), tModel: $("tModel"), tDom: $("tDom"), tVlm: $("tVlm"),
+  wModel: $("wModel"), wDom: $("wDom"), wVlm: $("wVlm"), bars: $("bars"),
+  history: $("history"),
+  taskInput: $("taskInput"), primaryBtn: $("primaryBtn"), primaryIcon: $("primaryIcon"),
+  primaryLabel: $("primaryLabel"), resetBtn: $("resetBtn"),
+  redactSolidBtn: $("redactSolidBtn"), redactBlurBtn: $("redactBlurBtn"),
+  toggleModel: $("toggleModel"), toggleDom: $("toggleDom"),
+  captureBtn: $("captureBtn"), debugStatus: $("debugStatus"), debugDom: $("debugDom")
 };
 
-// --- Tab Switching Logic ---
-const tabs = [
-  { btn: tabRunBtn, content: tabContentRun },
-  { btn: tabPipelineBtn, content: tabContentPipeline },
-  { btn: tabHistoryBtn, content: tabContentHistory }
+const PANES = {
+  agent:  ["Agent", "Live reasoning loop"],
+  shield: ["Privacy", "What actually left the browser"],
+  tele:   ["Latency", "Where the time goes, per step"],
+  hist:   ["History", "Runs from this session"],
+  cfg:    ["Settings", "Pipeline and endpoint"]
+};
+
+const STAGES = ["Capture", "Redact", "Send", "Reason", "Execute"];
+const NOTES = [
+  "Screenshotting the tab, snapshotting the DOM",
+  "Blacking out faces, stripping sensitive text",
+  "Sending the sanitized frame upstream",
+  "Choosing the next action",
+  "Performing the action in the page"
 ];
+const ACTION_ICON = {
+  click: "ph-cursor-click", type: "ph-keyboard",
+  scroll: "ph-arrows-out-line-vertical", done: "ph-check"
+};
+const ACTION_LABEL = {
+  click: "Clicked an element", type: "Typed into a field",
+  scroll: "Scrolled the page", done: "Objective satisfied"
+};
 
-tabs.forEach(t => {
-  t.btn.addEventListener("click", () => {
-    tabs.forEach(x => {
-      x.btn.classList.remove("active");
-      x.content.classList.remove("active");
+let options = { redactionMode: "blackout", runModel: true, runDom: true };
+let prefs = { theme: "cream", pane: "agent" };
+let history = [];
+let stepDurations = [];
+let running = false;
+let stageTimers = [];
+let ranAnything = false;
+
+/* ------------------------------- chrome shims ------------------------------ */
+const store = {
+  get(keys) {
+    return new Promise((res) => {
+      try { chrome.storage.local.get(keys, (r) => res(r || {})); }
+      catch { res({}); }
     });
-    t.btn.classList.add("active");
-    t.content.classList.add("active");
+  },
+  set(obj) { try { chrome.storage.local.set(obj); } catch {} }
+};
+
+/* --------------------------------- theme ---------------------------------- */
+function applyTheme() {
+  document.documentElement.dataset.theme = prefs.theme === "espresso" ? "espresso" : "";
+  const dark = prefs.theme === "espresso";
+  el.themeIcon.className = "ph-duotone " + (dark ? "ph-sun" : "ph-moon-stars");
+  el.themeLabel.textContent = dark ? "Cream" : "Espresso";
+}
+el.themeBtn.addEventListener("click", () => {
+  prefs.theme = prefs.theme === "espresso" ? "cream" : "espresso";
+  applyTheme();
+  store.set({ agentUiPrefs: prefs });
+});
+
+/* ---------------------------------- rail ---------------------------------- */
+// Overlay drawer, not a reflowing column: a Chrome side panel is only 320-500px
+// wide, so a persistent 184px rail would eat half the content. Expanded state is
+// momentary — the scrim dismisses it and picking a pane closes it.
+let railOpen = false;
+function setRail(open) {
+  railOpen = open;
+  el.rail.classList.toggle("open", open);
+  el.scrim.classList.toggle("on", open);
+  el.railBtn.title = open ? "Hide labels" : "Show labels";
+}
+el.railBtn.addEventListener("click", () => setRail(!railOpen));
+el.scrim.addEventListener("click", () => setRail(false));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && railOpen) setRail(false); });
+
+/* ---------------------------------- panes --------------------------------- */
+function goPane(name) {
+  prefs.pane = name;
+  document.querySelectorAll(".nav").forEach((b) => b.classList.toggle("on", b.dataset.pane === name));
+  document.querySelectorAll(".pane").forEach((p) => p.classList.remove("on"));
+  const pane = $("pane-" + name);
+  if (pane) { pane.classList.add("on"); pane.style.animation = "none"; void pane.offsetWidth; pane.style.animation = ""; }
+  const [t, s] = PANES[name];
+  el.paneTitle.textContent = t;
+  el.paneSub.textContent = s;
+  setRail(false);
+  store.set({ agentUiPrefs: prefs });
+}
+document.querySelectorAll(".nav").forEach((b) => b.addEventListener("click", () => goPane(b.dataset.pane)));
+
+/* -------------------------------- pipeline -------------------------------- */
+function setStage(i) {
+  document.querySelectorAll(".stage").forEach((s) => {
+    const n = +s.dataset.stage;
+    s.classList.toggle("live", n === i);
+    s.classList.toggle("done", i < 0 ? ranAnything : n < i);
   });
-});
-
-// --- Pipeline Settings Handlers ---
-redactSolidBtn.addEventListener("click", () => {
-  options.redactionMode = "blackout";
-  redactSolidBtn.classList.add("active");
-  redactBlurBtn.classList.remove("active");
-  saveOptions();
-});
-
-redactBlurBtn.addEventListener("click", () => {
-  options.redactionMode = "blur";
-  redactBlurBtn.classList.add("active");
-  redactSolidBtn.classList.remove("active");
-  saveOptions();
-});
-
-toggleModel.addEventListener("change", () => {
-  options.runModel = toggleModel.checked;
-  saveOptions();
-});
-
-toggleDom.addEventListener("change", () => {
-  options.runDom = toggleDom.checked;
-  saveOptions();
-});
-
-function saveOptions() {
-  chrome.storage.local.set({ agentOptions: options }).catch(console.warn);
+  el.stageName.textContent = i >= 0 ? STAGES[i] : (ranAnything ? "Clear" : "Ready");
+  el.stageNote.textContent = i >= 0 ? NOTES[i] : (ranAnything ? "Loop idle, five stages clear" : "Everything local until Send");
+}
+function clearStageTimers() { stageTimers.forEach(clearTimeout); stageTimers = []; }
+// Optimistic walk: capture -> redact -> send -> reason, then hold on "reason"
+// until STEP_FINISHED arrives. Replace with real STAGE messages when ready.
+function walkStages() {
+  clearStageTimers();
+  [0, 1, 2, 3].forEach((s, k) => stageTimers.push(setTimeout(() => setStage(s), k * 260)));
 }
 
-function loadOptions() {
-  chrome.storage.local.get("agentOptions", (res) => {
-    if (res && res.agentOptions) {
-      options = { ...options, ...res.agentOptions };
-      // Sync UI components
-      if (options.redactionMode === "blur") {
-        redactBlurBtn.classList.add("active");
-        redactSolidBtn.classList.remove("active");
-      } else {
-        redactSolidBtn.classList.add("active");
-        redactBlurBtn.classList.remove("active");
-      }
-      toggleModel.checked = options.runModel;
-      toggleDom.checked = options.runDom;
-    }
+/* --------------------------------- options -------------------------------- */
+function applyOptions() {
+  const blur = options.redactionMode === "blur";
+  el.redactBlurBtn.classList.toggle("on", blur);
+  el.redactSolidBtn.classList.toggle("on", !blur);
+  el.toggleModel.classList.toggle("on", !!options.runModel);
+  el.toggleModel.setAttribute("aria-checked", String(!!options.runModel));
+  el.toggleDom.classList.toggle("on", !!options.runDom);
+  el.toggleDom.setAttribute("aria-checked", String(!!options.runDom));
+}
+function saveOptions() { store.set({ agentOptions: options }); }
+
+el.redactSolidBtn.addEventListener("click", () => { options.redactionMode = "blackout"; applyOptions(); saveOptions(); });
+el.redactBlurBtn.addEventListener("click", () => { options.redactionMode = "blur"; applyOptions(); saveOptions(); });
+el.toggleModel.addEventListener("click", () => { options.runModel = !options.runModel; applyOptions(); saveOptions(); });
+el.toggleDom.addEventListener("click", () => { options.runDom = !options.runDom; applyOptions(); saveOptions(); });
+
+/* --------------------------------- history -------------------------------- */
+function renderHistory() {
+  if (!history.length) {
+    el.history.innerHTML =
+      '<div class="empty"><div class="badge"><i class="ph-duotone ph-clock-counter-clockwise"></i></div>' +
+      "<h3>No runs yet</h3><p>Finished runs land here so you can re-run them with one tap.</p></div>";
+    return;
+  }
+  el.history.innerHTML = history.map((h) => `
+    <button class="hrow" data-task="${escapeAttr(h.task)}">
+      <span class="ic"><i class="ph-duotone ${h.success ? "ph-check-circle" : "ph-stop-circle"}"></i></span>
+      <span style="flex:1;min-width:0">
+        <span class="task">${escapeHtml(h.task)}</span>
+        <span class="meta num"><span>${escapeHtml(h.timestamp)}</span><span>${h.steps} steps</span><span>${h.success ? "completed" : "stopped"}</span></span>
+      </span>
+      <i class="ph-duotone ph-arrow-counter-clockwise" style="font-size:14px;color:var(--tx3);flex-shrink:0;margin-top:5px"></i>
+    </button>`).join("");
+  el.history.querySelectorAll(".hrow").forEach((row) => {
+    row.addEventListener("click", () => { el.taskInput.value = row.dataset.task; goPane("agent"); });
   });
 }
-loadOptions();
-
-// --- Suggestion Chips Handler ---
-document.querySelectorAll(".chip").forEach(chip => {
-  chip.addEventListener("click", () => {
-    taskInput.value = chip.getAttribute("data-task");
-    tabRunBtn.click(); // Auto navigate to agent run pane
-  });
-});
-
-// --- History Tracker ---
-let sessionHistory = [];
-
-const historyList = document.getElementById("historyList");
-
 function saveToHistory(task, steps, success) {
-  const item = {
-    id: Date.now(),
-    task,
-    steps,
-    success,
-    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-  };
-  sessionHistory.unshift(item);
-  chrome.storage.local.set({ agentHistory: sessionHistory }).catch(console.warn);
+  history.unshift({
+    id: Date.now(), task, steps, success,
+    timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  });
+  history = history.slice(0, 20);
+  store.set({ agentHistory: history });
   renderHistory();
 }
 
-function renderHistory() {
-  if (sessionHistory.length === 0) {
-    historyList.innerHTML = `
-      <div class="empty-state" style="margin-top: 10px;">
-        <div class="empty-text">No runs in this session yet. Completed tasks will show up here.</div>
-      </div>`;
+/* -------------------------------- telemetry ------------------------------- */
+function resetTelemetry() {
+  ["tTotal", "tModel", "tDom", "tVlm"].forEach((k) => (el[k].textContent = "—"));
+  el.wModel.style.width = el.wDom.style.width = el.wVlm.style.width = "0";
+  el.statFaces.textContent = "0";
+  el.statFields.textContent = "0";
+  el.shieldCount.textContent = "0";
+  el.shieldDot.classList.remove("show");
+  el.maskedList.innerHTML = maskedRow("nothing masked yet", "—");
+  stepDurations = [];
+  renderBars();
+}
+function maskedRow(sel, kind) {
+  return `<div class="list-row"><span class="led"></span><span class="sel">${escapeHtml(sel)}</span><span class="kind">${escapeHtml(kind)}</span></div>`;
+}
+function renderBars() {
+  if (!stepDurations.length) {
+    el.bars.innerHTML = '<div style="flex:1;font-size:12px;color:var(--tx3);text-align:center;align-self:center">No runs measured yet.</div>';
     return;
   }
+  const max = Math.max(...stepDurations);
+  el.bars.innerHTML = stepDurations.map((ms, i) =>
+    `<div class="col"><div class="b" style="height:${Math.max(12, (ms / max) * 100)}%"></div><div class="n num">${i + 1}</div></div>`
+  ).join("");
+}
+let faces = 0, fields = 0;
+function updateTelemetry(t) {
+  if (!t) return;
+  const model = Math.round(t.detectSensitiveRegionsMs || 0);
+  const dom = Math.round((t.sanitizeDomMs || 0) + (t.findTextPiiMs || 0));
+  const vlm = Math.round(t.serverRoundTripMs || 0);
+  const total = Math.round(t.totalStepMs || model + dom + vlm);
+  el.tModel.textContent = model;
+  el.tDom.textContent = dom;
+  el.tVlm.textContent = vlm;
+  el.tTotal.textContent = total;
+  const sum = Math.max(1, model + dom + vlm);
+  el.wModel.style.width = (model / sum) * 100 + "%";
+  el.wDom.style.width = (dom / sum) * 100 + "%";
+  el.wVlm.style.width = (vlm / sum) * 100 + "%";
+  stepDurations.push(total);
+  renderBars();
 
-  historyList.innerHTML = sessionHistory.map(item => `
-    <div class="history-card" data-task="${escapeHtml(item.task)}">
-      <div class="history-task-text">${escapeHtml(item.task)}</div>
-      <div class="history-meta">
-        <span>🕒 ${item.timestamp}</span>
-        <span style="color: ${item.success ? 'var(--accent-teal)' : 'var(--danger)'}">
-          ${item.success ? '✓ Completed' : '✗ Stopped'} (${item.steps} steps)
-        </span>
+  const boxes = t.redactedBoxes || [];
+  faces += boxes.filter((b) => b.type === "face").length;
+  fields += boxes.filter((b) => b.type !== "face").length;
+  el.statFaces.textContent = faces;
+  el.statFields.textContent = fields;
+  el.shieldCount.textContent = faces + fields;
+  el.shieldDot.classList.toggle("show", faces + fields > 0);
+
+  if (boxes.length) {
+    const rows = boxes.slice(0, 6).map((b) => maskedRow(b.selector || b.label || "visual region", b.type || "region")).join("");
+    el.maskedList.innerHTML = rows;
+  }
+  return { faces, fields };
+}
+
+/* -------------------------------- step cards ------------------------------ */
+function stepCard(step, action) {
+  const kind = (action && action.action) || "pending";
+  const exec = action && action.executionResult;
+  const target = action && (action.selector || (action.text ? `"${action.text}"` : ""));
+  const redacted = action && action.telemetry && action.telemetry.redactedBoxes
+    ? action.telemetry.redactedBoxes.length : 0;
+  const ms = action && action.telemetry ? Math.round(action.telemetry.totalStepMs || 0) : 0;
+  return `
+    <div class="step a-${escapeAttr(kind)}" id="step-${step}">
+      <div class="step-head">
+        <span class="step-badge"><i class="ph-duotone ${ACTION_ICON[kind] || "ph-circle-dashed"}"></i></span>
+        <span class="step-label">${escapeHtml(ACTION_LABEL[kind] || "Working…")}</span>
+        <span class="step-ms num">${ms ? ms + "ms" : ""}</span>
       </div>
-    </div>
-  `).join("");
-
-  // Add click listener to cards to load tasks
-  historyList.querySelectorAll(".history-card").forEach(card => {
-    card.addEventListener("click", () => {
-      taskInput.value = card.getAttribute("data-task");
-      tabRunBtn.click();
-    });
-  });
+      ${target ? `<div class="step-target">${escapeHtml(target)}</div>` : ""}
+      <div class="step-reason">${escapeHtml((action && action.reasoning) || "Running the local anonymizer and reading the layout…")}</div>
+      <div class="step-meta">
+        ${exec
+          ? (exec.matched
+              ? '<span class="ok"><i class="ph-duotone ph-check-circle"></i>executed</span>'
+              : `<span class="bad"><i class="ph-duotone ph-x-circle"></i>${escapeHtml(exec.reason || "execution failed")}</span>`)
+          : ""}
+        <span><i class="ph-duotone ph-shield"></i>${redacted} redacted</span>
+      </div>
+    </div>`;
 }
 
-function loadHistory() {
-  chrome.storage.local.get("agentHistory", (res) => {
-    if (res && res.agentHistory) {
-      sessionHistory = res.agentHistory;
-      renderHistory();
-    }
-  });
+/* ----------------------------------- run ---------------------------------- */
+function setRunning(on) {
+  running = on;
+  document.body.classList.toggle("running", on);
+  el.primaryIcon.className = "ph-duotone " + (on ? "ph-stop-circle" : "ph-play-circle");
+  el.primaryLabel.textContent = on ? "Halt agent" : "Run agent";
 }
-loadHistory();
 
-// --- Agent Execution Control ---
-runTaskBtn.addEventListener("click", async () => {
-  const task = taskInput.value.trim();
-  if (!task) {
-    statusLine.textContent = "Enter a task first.";
+el.primaryBtn.addEventListener("click", async () => {
+  if (running) {
+    el.statusChip.textContent = "stopping…";
+    try { await chrome.runtime.sendMessage({ type: "STOP_TASK" }); } catch (e) { console.warn(e); }
     return;
   }
 
-  runTaskBtn.disabled = true;
-  stopBtn.style.display = "flex";
-  statusLine.innerHTML = '<span class="spinner"></span> Working...';
-  
-  // Clear log and empty state
-  log.innerHTML = `<div class="step-timeline" id="timeline"></div>`;
-  emptyState.style.display = "none";
+  const task = el.taskInput.value.trim();
+  if (!task) { el.statusChip.textContent = "enter a task"; el.taskInput.focus(); return; }
 
-  // Reset telemetry display
+  setRunning(true);
+  ranAnything = true;
+  faces = 0; fields = 0;
   resetTelemetry();
+  el.log.innerHTML = "";
+  el.statusChip.textContent = "starting";
+  goPane("agent");
 
   try {
-    const result = await chrome.runtime.sendMessage({
-      type: "START_TASK",
-      task,
-      options
-    });
-
+    const result = await chrome.runtime.sendMessage({ type: "START_TASK", task, options });
     if (!result) {
-      statusLine.textContent = "No response from background script — check its console.";
+      el.statusChip.textContent = "no response";
       saveToHistory(task, 0, false);
     } else if (result.stopped) {
-      statusLine.textContent = `Stopped by you after ${result.steps} step(s).`;
+      el.statusChip.textContent = `halted · ${result.steps} steps`;
       saveToHistory(task, result.steps, false);
     } else if (result.error) {
-      statusLine.textContent = `Stopped after ${result.steps} step(s): ${result.error}`;
+      el.statusChip.textContent = `error · ${result.steps} steps`;
+      appendError(result.error);
       saveToHistory(task, result.steps, false);
     } else {
-      statusLine.textContent = `Finished in ${result.steps} step(s).`;
+      el.statusChip.textContent = `done · ${result.steps} steps`;
       saveToHistory(task, result.steps, true);
     }
   } catch (err) {
-    statusLine.textContent = `Error: ${err.message}`;
-    console.error(err);
+    el.statusChip.textContent = "error";
+    appendError(err.message);
     saveToHistory(task, 0, false);
+    console.error(err);
   } finally {
-    runTaskBtn.disabled = false;
-    stopBtn.style.display = "none";
+    setRunning(false);
+    clearStageTimers();
+    setStage(-1);
   }
 });
 
-stopBtn.addEventListener("click", async () => {
-  statusLine.innerHTML = '<span class="spinner"></span> Stopping after current step...';
-  await chrome.runtime.sendMessage({ type: "STOP_TASK" });
+function appendError(msg) {
+  el.log.insertAdjacentHTML("beforeend",
+    `<div class="step a-done" style="--ac:var(--warn)">
+       <div class="step-head"><span class="step-badge"><i class="ph-duotone ph-warning"></i></span>
+       <span class="step-label">Run stopped</span></div>
+       <div class="step-reason">${escapeHtml(msg)}</div>
+     </div>`);
+}
+
+el.resetBtn.addEventListener("click", () => {
+  clearStageTimers();
+  ranAnything = false;
+  faces = 0; fields = 0;
+  resetTelemetry();
+  setStage(-1);
+  el.statusChip.textContent = "idle";
+  el.log.innerHTML =
+    '<div class="empty" id="emptyState"><div class="badge"><i class="ph-duotone ph-scan-smiley"></i></div>' +
+    "<h3>Nothing running</h3><p>Give the agent an objective. Every move it makes is narrated here, with the redaction receipt one icon away.</p></div>";
 });
 
-// Reset Telemetry display
-function resetTelemetry() {
-  metricModelTime.childNodes[0].textContent = "-";
-  metricDomTime.childNodes[0].textContent = "-";
-  metricVlmTime.childNodes[0].textContent = "-";
-  metricTotalTime.childNodes[0].textContent = "-";
-  statFacesCount.textContent = "0";
-  statDomFieldsCount.textContent = "0";
-}
+document.querySelectorAll(".chip").forEach((chip) => {
+  chip.addEventListener("click", () => { el.taskInput.value = chip.dataset.task; goPane("agent"); });
+});
 
-// Update Dashboard timings
-function updateTelemetryDashboard(telemetry) {
-  if (!telemetry) return;
-  metricModelTime.childNodes[0].textContent = Math.round(telemetry.detectSensitiveRegionsMs);
-  metricDomTime.childNodes[0].textContent = Math.round(telemetry.sanitizeDomMs + telemetry.findTextPiiMs);
-  metricVlmTime.childNodes[0].textContent = Math.round(telemetry.serverRoundTripMs);
-  metricTotalTime.childNodes[0].textContent = Math.round(telemetry.totalStepMs);
-  
-  const faceCount = telemetry.redactedBoxes.filter(b => b.type === "face").length;
-  const domCount = telemetry.redactedBoxes.filter(b => b.type !== "face").length;
-  
-  statFacesCount.textContent = faceCount;
-  statDomFieldsCount.textContent = domCount;
-}
+/* ------------------------------ step messages ----------------------------- */
+const hasRuntime = typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage;
+if (hasRuntime) chrome.runtime.onMessage.addListener((msg) => {
+  if (!msg) return;
 
-// Listen to step events
-chrome.runtime.onMessage.addListener((msg) => {
-  const timeline = document.getElementById("timeline");
-  if (!timeline) return;
+  if (msg.type === "STAGE" && typeof msg.stage === "number") {
+    clearStageTimers();
+    setStage(msg.stage);
+    return;
+  }
 
   if (msg.type === "STEP_STARTED") {
-    statusLine.innerHTML = `<span class="spinner"></span> Step ${msg.step} running...`;
-    
-    const div = document.createElement("div");
-    div.className = "step pending";
-    div.id = `step-${msg.step}`;
-    div.innerHTML = `
-      <div class="step-header">
-        <span class="step-action-badge">Step ${msg.step}</span>
-        <span class="spinner"></span>
-      </div>
-      <div class="step-reasoning">Running local anonymizer and analyzing layout...</div>
-    `;
-    timeline.appendChild(div);
-    log.scrollTop = log.scrollHeight;
+    el.statusChip.textContent = `step ${msg.step}`;
+    walkStages();
+    const existing = $("step-" + msg.step);
+    if (existing) existing.outerHTML = stepCard(msg.step, null);
+    else el.log.insertAdjacentHTML("beforeend", stepCard(msg.step, null));
   }
 
   if (msg.type === "STEP_FINISHED") {
-    const div = document.getElementById(`step-${msg.step}`);
-    if (!div) return;
-    const a = msg.action;
-    div.className = `step action-${a.action}`;
-
-    const execResult = a.executionResult;
-    let execLine = "";
-    if (execResult) {
-      execLine = execResult.matched
-        ? '<div class="step-exec exec-ok">✓ executed successfully</div>'
-        : `<div class="step-exec exec-fail">✗ execution failed: ${escapeHtml(execResult.reason || "unknown")}</div>`;
-    }
-    
-    div.innerHTML = `
-      <div class="step-header">
-        <span class="step-action-badge">${a.action}</span>
-        <span class="step-number">Step ${msg.step}</span>
-      </div>
-      ${a.selector ? `<div class="step-selector">Element: <code>${escapeHtml(a.selector)}</code></div>` : ""}
-      ${a.text ? `<div class="step-selector">Input content: "${escapeHtml(a.text)}"</div>` : ""}
-      <div class="step-reasoning">${escapeHtml(a.reasoning || "Reasoning not provided.")}</div>
-      ${execLine}
-    `;
-    log.scrollTop = log.scrollHeight;
-
-    // Update the live metrics timing panel!
-    updateTelemetryDashboard(a.telemetry);
+    clearStageTimers();
+    setStage(4);
+    const node = $("step-" + msg.step);
+    if (node) node.outerHTML = stepCard(msg.step, msg.action);
+    else el.log.insertAdjacentHTML("beforeend", stepCard(msg.step, msg.action));
+    updateTelemetry(msg.action && msg.action.telemetry);
+    if (msg.action && msg.action.redactedImageDataUrl) showPreview(msg.action.redactedImageDataUrl);
   }
 });
 
-// --- Debug capture-only harness ---
-const debugBtn = document.getElementById("captureBtn");
-const debugStatus = document.getElementById("debugStatus");
-const debugPreview = document.getElementById("debugPreview");
-const debugDomList = document.getElementById("debugDomList");
+function showPreview(dataUrl) {
+  el.previewFrame.innerHTML = `<img src="${dataUrl}" alt="Sanitized frame"><div class="tag">Sanitized frame</div>`;
+}
 
-debugBtn.addEventListener("click", async () => {
-  debugStatus.innerHTML = '<span class="spinner"></span> Capturing and redacting...';
-  debugDomList.innerHTML = "";
-  debugPreview.style.display = "none";
-
+/* --------------------------- capture-only harness ------------------------- */
+el.captureBtn.addEventListener("click", async () => {
+  el.debugStatus.textContent = "Capturing and redacting…";
+  el.debugDom.innerHTML = "";
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    // Pass user options
-    const result = await chrome.tabs.sendMessage(tab.id, { 
-      type: "CAPTURE_AND_SANITIZE", 
-      options 
-    });
+    const result = await chrome.tabs.sendMessage(tab.id, { type: "CAPTURE_AND_SANITIZE", options });
 
-    if (result && result.error) {
-      debugStatus.textContent = `Error: ${result.error}`;
-      return;
-    }
-    if (!result || !result.redactedImageDataUrl) {
-      debugStatus.textContent = "No result — check console logs.";
-      return;
-    }
+    if (result && result.error) { el.debugStatus.textContent = `Error: ${result.error}`; return; }
+    if (!result || !result.redactedImageDataUrl) { el.debugStatus.textContent = "No result — check the console."; return; }
 
-    debugPreview.src = result.redactedImageDataUrl;
-    debugPreview.style.display = "block";
+    showPreview(result.redactedImageDataUrl);
+    const r = result.redactionReport || {};
+    el.debugStatus.textContent =
+      `${result.sanitizedDom.length} DOM nodes · ${r.domFieldsRedacted || 0} inputs masked · ` +
+      `${r.textPiiRedacted || 0} text PII · ${r.visualRegionsRedacted || 0} faces`;
 
-    debugStatus.textContent =
-      `Done. ${result.sanitizedDom.length} DOM elements, ` +
-      `${result.redactionReport.domFieldsRedacted} masked HTML inputs, ` +
-      `${result.redactionReport.textPiiRedacted} OTP/text PII matches, ` +
-      `${result.redactionReport.visualRegionsRedacted} faces redacted.`;
+    faces = r.visualRegionsRedacted || 0;
+    fields = (r.domFieldsRedacted || 0) + (r.textPiiRedacted || 0);
+    el.statFaces.textContent = faces;
+    el.statFields.textContent = fields;
+    el.shieldCount.textContent = faces + fields;
+    el.shieldDot.classList.toggle("show", faces + fields > 0);
 
-    debugDomList.innerHTML = result.sanitizedDom
-      .slice(0, 30)
-      .map(
-        (n) =>
-          `<div class="${n.sensitive ? "sensitive" : ""}">${n.tag} ${n.selector}: "${escapeHtml(n.text)}"</div>`
-      )
-      .join("");
+    el.debugDom.innerHTML = result.sanitizedDom.slice(0, 30).map((n) =>
+      `<div class="${n.sensitive ? "sensitive" : ""}">${escapeHtml(n.tag)} ${escapeHtml(n.selector)}: "${escapeHtml(n.text)}"</div>`
+    ).join("");
   } catch (err) {
-    debugStatus.textContent = `Error: ${err.message}`;
+    el.debugStatus.textContent = `Error: ${err.message}`;
     console.error(err);
   }
 });
 
+/* --------------------------------- helpers -------------------------------- */
 function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
+  const d = document.createElement("div");
+  d.textContent = str == null ? "" : String(str);
+  return d.innerHTML;
 }
+function escapeAttr(str) { return escapeHtml(str).replace(/"/g, "&quot;"); }
+
+/* ---------------------------------- boot --------------------------------- */
+(async function boot() {
+  const saved = await store.get(["agentOptions", "agentHistory", "agentUiPrefs"]);
+  if (saved.agentOptions) options = { ...options, ...saved.agentOptions };
+  if (saved.agentUiPrefs) prefs = { ...prefs, ...saved.agentUiPrefs };
+  if (Array.isArray(saved.agentHistory)) history = saved.agentHistory;
+
+  applyTheme();
+  setRail(false);
+  applyOptions();
+  renderHistory();
+  resetTelemetry();
+  setStage(-1);
+  goPane(prefs.pane || "agent");
+})();
