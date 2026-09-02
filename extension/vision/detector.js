@@ -186,7 +186,10 @@ export async function detectSensitiveRegions(imageDataUrl) {
     // 5. Decode outputs using SSD anchors
     const priors = generatePriors();
     const candidates = [];
-    const scoreThreshold = 0.75; // high precision threshold to avoid over-redacting
+    // Lower = more recall. For a privacy tool a missed face is a real leak;
+    // an occasional unnecessary black box over a non-face is a non-issue —
+    // so bias toward catching it, not toward precision.
+    const scoreThreshold = 0.5;
     
     const centerVariance = 0.1;
     const sizeVariance = 0.2;

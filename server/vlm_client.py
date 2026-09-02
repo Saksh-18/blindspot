@@ -112,6 +112,15 @@ async def _call_groq(req: AgentStepRequest) -> dict:
         temperature=0.2,  # low temp — we want consistent, parseable actions, not creativity
         max_completion_tokens=500,
         response_format={"type": "json_object"},
+        # Qwen3.6 is a reasoning model — without this it spends an unbounded
+        # chunk of max_completion_tokens on hidden chain-of-thought before
+        # ever emitting the JSON answer. On the real (long) prompt this
+        # regularly ate the whole budget and left nothing for the actual
+        # response, which Groq then rejects as invalid JSON (400
+        # json_validate_failed, empty failed_generation). Disabling it also
+        # roughly quarters completion tokens per step, which matters a lot
+        # given this key's 8000 TPM cap.
+        reasoning_effort="none",
     )
 
     text = completion.choices[0].message.content
@@ -172,6 +181,8 @@ def _build_prompt(req: AgentStepRequest) -> str:
                 line += f"  [FAILED ({reason or 'unknown'}) — pick a different element or approach]"
             elif matched is True:
                 line += "  [executed successfully]"
+        elif a.action == "ask_user":
+            line += "  [ALREADY FLAGGED for the user to fill in themselves — do not ask about this field again; move on to a different field, or say \"done\" if nothing else is left]"
         return line
 
     history_summary = "\n".join(_format_history_entry(a) for a in req.history)
@@ -199,7 +210,10 @@ Fields marked [SENSITIVE] in the DOM list have had their real content
 redacted before it ever reached you — you cannot see what's actually in
 them, and typing a guessed value into one will be blocked. If the task
 genuinely requires filling a sensitive field (e.g. a password), respond
-with "ask_user" instead of guessing.
+with "ask_user" ONCE to flag it, then treat it as skipped — move on and
+keep filling any other, non-sensitive fields the task still needs. Never
+ask about the same field twice; the history below tells you which fields
+are already flagged.
 
 Decide the single next action. Respond with ONLY a JSON object, no prose,
 matching this shape:

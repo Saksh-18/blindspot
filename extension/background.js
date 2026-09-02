@@ -29,6 +29,9 @@ async function runAgentStep(tabId, task, history = [], signal, options = {}) {
     options,
   });
   console.timeEnd("capture+sanitize (content script)");
+  if (!capture || capture.error || !capture.redactedImageDataUrl) {
+    throw new Error(capture?.error || "capture+sanitize returned no image");
+  }
   // capture = { redactedImageDataUrl, sanitizedDom, timings, redactionReport }
   console.log(`Sending ${capture.sanitizedDom.length} DOM elements, image ~${Math.round(capture.redactedImageDataUrl.length / 1024)}KB`);
 
@@ -142,6 +145,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       let history = [];
       let action;
       let steps = 0;
+      let lastAskUserSelector = null;
       const MAX_STEPS = 15; // safety cap
 
       try {
@@ -163,6 +167,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           steps++;
 
           chrome.runtime.sendMessage({ type: "STEP_FINISHED", step: steps, action }).catch(() => {});
+
+          // ask_user isn't executed and isn't "done", so without a check
+          // here the loop just re-asks the model next step with the same
+          // screenshot+DOM — nothing forces it to move on, and it can spend
+          // every remaining step (and the tokens with it) re-flagging the
+          // exact same sensitive field. One repeat on the same selector is
+          // enough to know it's stuck, not reconsidering.
+          if (action.action === "ask_user") {
+            if (lastAskUserSelector === (action.selector || null)) {
+              sendResponse({ done: false, needsUserInput: true, steps, history, action });
+              return;
+            }
+            lastAskUserSelector = action.selector || null;
+          } else {
+            lastAskUserSelector = null;
+          }
+
           // IMPORTANT: we only stop on action === "done" — a click/type
           // response claiming task_complete: true in the SAME turn it
           // performed the action is not trusted, since the model hasn't

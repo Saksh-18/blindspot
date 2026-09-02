@@ -298,6 +298,11 @@ el.primaryBtn.addEventListener("click", async () => {
     } else if (result.stopped) {
       el.statusChip.textContent = `halted · ${result.steps} steps`;
       saveToHistory(task, result.steps, false);
+    } else if (result.needsUserInput) {
+      el.statusChip.textContent = `needs you · ${result.steps} steps`;
+      const field = (result.action && result.action.selector) || "a field";
+      appendNotice(`Everything else is done — ${field} needs your own input (it's redacted, so the agent can't see or fill it). Fill it in yourself, then re-run to continue.`);
+      saveToHistory(task, result.steps, true);
     } else if (result.error) {
       el.statusChip.textContent = `error · ${result.steps} steps`;
       appendError(result.error);
@@ -323,6 +328,15 @@ function appendError(msg) {
     `<div class="step a-done" style="--ac:var(--warn)">
        <div class="step-head"><span class="step-badge"><i class="ph-duotone ph-warning"></i></span>
        <span class="step-label">Run stopped</span></div>
+       <div class="step-reason">${escapeHtml(msg)}</div>
+     </div>`);
+}
+
+function appendNotice(msg) {
+  el.log.insertAdjacentHTML("beforeend",
+    `<div class="step a-done" style="--ac:var(--ok)">
+       <div class="step-head"><span class="step-badge"><i class="ph-duotone ph-hand-tap"></i></span>
+       <span class="step-label">Needs your input</span></div>
        <div class="step-reason">${escapeHtml(msg)}</div>
      </div>`);
 }
