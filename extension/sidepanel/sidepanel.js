@@ -20,6 +20,7 @@ const el = {
   history: $("history"),
   taskInput: $("taskInput"), primaryBtn: $("primaryBtn"), primaryIcon: $("primaryIcon"),
   primaryLabel: $("primaryLabel"), resetBtn: $("resetBtn"),
+  micBtn: $("micBtn"), micIcon: $("micIcon"),
   redactSolidBtn: $("redactSolidBtn"), redactBlurBtn: $("redactBlurBtn"),
   toggleModel: $("toggleModel"), toggleDom: $("toggleDom"),
   captureBtn: $("captureBtn"), debugStatus: $("debugStatus"), debugDom: $("debugDom")
@@ -356,6 +357,74 @@ el.resetBtn.addEventListener("click", () => {
 document.querySelectorAll(".chip").forEach((chip) => {
   chip.addEventListener("click", () => { el.taskInput.value = chip.dataset.task; goPane("agent"); });
 });
+
+/* ----------------------------------- mic --------------------------------- */
+// Dictation only — never sent anywhere itself, just fills the task box the
+// same as typing would. Uses the browser's own SpeechRecognition, which
+// triggers the standard mic permission prompt on first use.
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let listening = false;
+
+function setListening(on) {
+  listening = on;
+  el.micBtn.classList.toggle("listening", on);
+  el.micIcon.className = "ph-duotone " + (on ? "ph-stop-circle" : "ph-microphone");
+  el.micBtn.title = on ? "Listening… click to stop" : "Dictate task";
+}
+
+if (!SpeechRecognition) {
+  el.micBtn.disabled = true;
+  el.micBtn.title = "Voice dictation isn't supported in this browser";
+} else {
+  recognition = new SpeechRecognition();
+  recognition.lang = "en-US";
+  recognition.continuous = false;
+  recognition.interimResults = true;
+
+  let baseText = "";
+
+  recognition.addEventListener("result", (e) => {
+    let finalText = "";
+    let interimText = "";
+    for (let i = 0; i < e.results.length; i++) {
+      const transcript = e.results[i][0].transcript;
+      if (e.results[i].isFinal) finalText += transcript;
+      else interimText += transcript;
+    }
+    const sep = baseText && !/\s$/.test(baseText) ? " " : "";
+    el.taskInput.value = baseText + sep + (finalText || interimText);
+  });
+
+  recognition.addEventListener("error", (e) => {
+    setListening(false);
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      el.statusChip.textContent = "mic permission denied";
+    } else if (e.error === "no-speech") {
+      el.statusChip.textContent = "didn't catch that";
+    } else {
+      el.statusChip.textContent = `mic error: ${e.error}`;
+    }
+  });
+
+  recognition.addEventListener("end", () => setListening(false));
+
+  el.micBtn.addEventListener("click", () => {
+    if (listening) {
+      recognition.stop();
+      return;
+    }
+    baseText = el.taskInput.value.trim();
+    try {
+      recognition.start(); // prompts for mic permission the first time
+      setListening(true);
+      el.statusChip.textContent = "listening";
+    } catch (err) {
+      console.error("Failed to start speech recognition:", err);
+      el.statusChip.textContent = "mic unavailable";
+    }
+  });
+}
 
 /* ------------------------------ step messages ----------------------------- */
 const hasRuntime = typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage;
