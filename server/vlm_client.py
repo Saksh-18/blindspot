@@ -215,6 +215,15 @@ keep filling any other, non-sensitive fields the task still needs. Never
 ask about the same field twice; the history below tells you which fields
 are already flagged.
 
+Some fields instead show a token like "{{profile.email}}" or
+"{{profile.first_name}}" as their text — this means the user has that value
+stored locally (name/email/phone/address/etc.) and it can be filled in
+automatically. If the task calls for that kind of info in that field, use
+action "type" with "text" set to EXACTLY that token, copied verbatim
+(e.g. "{{profile.email}}") — never substitute what you think the real value
+might be. The real value is resolved locally in the browser; you are only
+ever choosing which token goes in which field.
+
 Decide the single next action. Respond with ONLY a JSON object, no prose,
 matching this shape:
 {{

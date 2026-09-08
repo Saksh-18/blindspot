@@ -148,6 +148,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       let lastAskUserSelector = null;
       const MAX_STEPS = 15; // safety cap
 
+      // Free win before spending a single token: fill whatever standard
+      // autocomplete-tagged fields (email, tel, street-address, ...) match
+      // the stored profile, entirely client-side. Whatever's left for the
+      // VLM to figure out shrinks accordingly.
+      try {
+        const autofillResult = await chrome.tabs.sendMessage(tab.id, { type: "AUTOFILL_STANDARD_FIELDS" });
+        if (autofillResult?.filled) {
+          console.log(`Instant autofill: ${autofillResult.filled} standard field(s) filled from profile`);
+        }
+      } catch (err) {
+        console.warn("Instant autofill pass failed (continuing without it):", err);
+      }
+
       try {
         do {
           if (taskAborted) {

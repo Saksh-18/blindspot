@@ -20,18 +20,29 @@ const el = {
   history: $("history"),
   taskInput: $("taskInput"), primaryBtn: $("primaryBtn"), primaryIcon: $("primaryIcon"),
   primaryLabel: $("primaryLabel"), resetBtn: $("resetBtn"),
+  attachBtn: $("attachBtn"), fileInput: $("fileInput"), fileList: $("fileList"),
+  micBtn: $("micBtn"), micIcon: $("micIcon"),
+  expandBtn: $("expandBtn"),
   redactSolidBtn: $("redactSolidBtn"), redactBlurBtn: $("redactBlurBtn"),
   toggleModel: $("toggleModel"), toggleDom: $("toggleDom"),
-  captureBtn: $("captureBtn"), debugStatus: $("debugStatus"), debugDom: $("debugDom")
+  captureBtn: $("captureBtn"), debugStatus: $("debugStatus"), debugDom: $("debugDom"),
+  profileSaveBtn: $("profileSaveBtn"), profileStatus: $("profileStatus")
 };
 
 const PANES = {
-  agent:  ["Agent", "Live reasoning loop"],
-  shield: ["Privacy", "What actually left the browser"],
-  tele:   ["Latency", "Where the time goes, per step"],
-  hist:   ["History", "Runs from this session"],
-  cfg:    ["Settings", "Pipeline and endpoint"]
+  agent:   ["Agent", "Live reasoning loop"],
+  shield:  ["Privacy", "What actually left the browser"],
+  tele:    ["Latency", "Where the time goes, per step"],
+  hist:    ["History", "Runs from this session"],
+  profile: ["Profile", "Your local autofill info"],
+  cfg:     ["Settings", "Pipeline and endpoint"]
 };
+
+const PROFILE_KEYS = [
+  "first_name", "last_name", "full_name", "email", "phone", "gender",
+  "address_line1", "address_line2", "city", "state", "zip_code",
+  "country", "date_of_birth",
+];
 
 const STAGES = ["Capture", "Redact", "Send", "Reason", "Execute"];
 const NOTES = [
@@ -141,6 +152,161 @@ function applyOptions() {
   el.toggleDom.setAttribute("aria-checked", String(!!options.runDom));
 }
 function saveOptions() { store.set({ agentOptions: options }); }
+
+/* --------------------------------- profile -------------------------------- */
+// Local-only: chrome.storage.local never syncs, never leaves the device.
+// content.js reads this same "agentProfile" key directly to resolve
+// {{profile.<key>}} placeholders — this pane is just the editor for it.
+let profile = {};
+
+function loadProfileIntoForm() {
+  PROFILE_KEYS.forEach((key) => {
+    const input = document.querySelector(`#pane-profile [data-key="${key}"]`);
+    if (input) input.value = profile[key] || "";
+  });
+}
+function readProfileFromForm() {
+  const next = {};
+  PROFILE_KEYS.forEach((key) => {
+    const input = document.querySelector(`#pane-profile [data-key="${key}"]`);
+    next[key] = input ? input.value.trim() : "";
+  });
+  return next;
+}
+el.profileSaveBtn.addEventListener("click", () => {
+  profile = readProfileFromForm();
+  store.set({ agentProfile: profile });
+  const filledCount = Object.values(profile).filter(Boolean).length;
+  el.profileStatus.textContent = filledCount
+    ? `Saved · ${filledCount} field(s) stored on this device only.`
+    : "Saved · nothing filled in yet.";
+});
+
+/* -------------------- attach-a-file-as-info-source (local only) ----------- */
+// Deliberately local-only: an attached file might contain real personal
+// data (that's the whole point of it), so it gets the same treatment as
+// everything else in this project — parsed on-device, never sent to the
+// server raw. There's no on-device LLM here to do fuzzy extraction with, so
+// this is regex/structure-based (JSON, or "Label: value" lines) rather than
+// free-form understanding — it won't parse prose like a resume paragraph,
+// only files that actually state fields plainly. Images/PDFs are skipped
+// entirely: reading those would need real document/OCR parsing this
+// project doesn't have, and silently sending them to the VLM to "read" them
+// would break the no-raw-personal-data-leaves-the-browser guarantee this
+// whole project is built on.
+const PROFILE_FIELD_ALIASES = {
+  first_name: ["first name", "given name", "fname"],
+  last_name: ["last name", "surname", "family name", "lname"],
+  full_name: ["full name", "name"],
+  email: ["email", "e-mail"],
+  phone: ["phone", "mobile", "contact number", "telephone"],
+  gender: ["gender", "sex"],
+  address_line1: ["address line 1", "address 1", "street address", "address"],
+  address_line2: ["address line 2", "address 2", "apartment", "suite"],
+  city: ["city", "town"],
+  state: ["state", "province"],
+  zip_code: ["zip code", "zip", "postal code", "pincode"],
+  country: ["country"],
+  date_of_birth: ["date of birth", "dob", "birth date", "birthday"],
+};
+
+const EXTRACTABLE_TYPES = /^(text\/|application\/json)/;
+const EXTRACTABLE_EXT = /\.(txt|csv|json|md)$/i;
+function isLocallyExtractable(file) {
+  return EXTRACTABLE_TYPES.test(file.type) || EXTRACTABLE_EXT.test(file.name);
+}
+
+function dataUrlToText(dataUrl) {
+  try {
+    const base64 = dataUrl.split(",")[1] || "";
+    const binary = atob(base64);
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    return new TextDecoder("utf-8").decode(bytes);
+  } catch {
+    return "";
+  }
+}
+
+function normalizeLabel(s) {
+  return s.toLowerCase().replace(/[_\-]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function extractProfileFromText(text) {
+  const found = {};
+
+  // JSON first — a file the user built specifically for this
+  try {
+    const obj = JSON.parse(text);
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      for (const rawKey of Object.keys(obj)) {
+        const val = obj[rawKey];
+        if (typeof val !== "string" || !val.trim()) continue;
+        const norm = normalizeLabel(rawKey);
+        for (const [key, aliases] of Object.entries(PROFILE_FIELD_ALIASES)) {
+          if (norm === normalizeLabel(key) || aliases.some((a) => normalizeLabel(a) === norm)) {
+            if (!found[key]) found[key] = val.trim();
+            break;
+          }
+        }
+      }
+      if (Object.keys(found).length) return found;
+    }
+  } catch { /* not JSON — fall through to line scanning */ }
+
+  // "Label: value" / "Label - value" / "Label, value" per line — covers a
+  // plain .txt info sheet and simple two-column CSV alike.
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    const m = line.match(/^\s*([A-Za-z][A-Za-z\s\-_]{1,30}?)\s*[:,=\t-]\s*(.+?)\s*$/);
+    if (!m) continue;
+    const norm = normalizeLabel(m[1]);
+    const value = m[2].trim();
+    if (!value) continue;
+    for (const [key, aliases] of Object.entries(PROFILE_FIELD_ALIASES)) {
+      if (norm === normalizeLabel(key) || aliases.some((a) => normalizeLabel(a) === norm)) {
+        if (!found[key]) found[key] = value;
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * Runs right before a task starts. Extracts whatever it can from supported
+ * attachments, writes it as a session-only override (cleared when the run
+ * ends — never merged into the saved profile unless the user does that
+ * themselves), and returns a short human-readable summary for the log.
+ */
+async function applyAttachmentsAsProfileOverride(files) {
+  const extractable = files.filter(isLocallyExtractable);
+  const skipped = files.filter((f) => !isLocallyExtractable(f));
+
+  let merged = {};
+  for (const f of extractable) {
+    const text = dataUrlToText(f.dataUrl);
+    if (!text) continue;
+    merged = { ...merged, ...extractProfileFromText(text) };
+  }
+
+  await store.set({ agentProfileSessionOverride: merged });
+
+  const gotKeys = Object.keys(merged);
+  if (!files.length) return null;
+  if (gotKeys.length) {
+    let msg = `Picked up ${gotKeys.length} field(s) from ${extractable.map((f) => f.name).join(", ")}: ${gotKeys.join(", ")}.`;
+    if (skipped.length) msg += ` (${skipped.map((f) => f.name).join(", ")} skipped — only plain text/JSON/CSV files are read locally.)`;
+    return { ok: true, msg };
+  }
+  if (skipped.length === files.length) {
+    return { ok: false, msg: `${skipped.map((f) => f.name).join(", ")} can't be read locally (only .txt/.csv/.json are parsed on-device) — attach a plain-text info sheet instead, or fill in the Profile tab directly.` };
+  }
+  return { ok: false, msg: "No recognizable fields found in the attached file(s) — try 'Label: value' lines, e.g. 'Email: you@example.com'." };
+}
+
+async function clearAttachmentsProfileOverride() {
+  await store.set({ agentProfileSessionOverride: {} });
+}
 
 el.redactSolidBtn.addEventListener("click", () => { options.redactionMode = "blackout"; applyOptions(); saveOptions(); });
 el.redactBlurBtn.addEventListener("click", () => { options.redactionMode = "blur"; applyOptions(); saveOptions(); });
@@ -290,8 +456,19 @@ el.primaryBtn.addEventListener("click", async () => {
   el.statusChip.textContent = "starting";
   goPane("agent");
 
+  // Local-only: parse any attached info file into profile fields for THIS
+  // run before doing anything else — never merged into the saved profile,
+  // never sent to the server raw. See extractProfileFromText() for why
+  // this is regex-based rather than "smart."
+  if (attachments.length) {
+    const summary = await applyAttachmentsAsProfileOverride(attachments);
+    if (summary) appendNotice(summary.msg);
+  } else {
+    await clearAttachmentsProfileOverride();
+  }
+
   try {
-    const result = await chrome.runtime.sendMessage({ type: "START_TASK", task, options });
+    const result = await chrome.runtime.sendMessage({ type: "START_TASK", task, options, attachments });
     if (!result) {
       el.statusChip.textContent = "no response";
       saveToHistory(task, 0, false);
@@ -300,8 +477,8 @@ el.primaryBtn.addEventListener("click", async () => {
       saveToHistory(task, result.steps, false);
     } else if (result.needsUserInput) {
       el.statusChip.textContent = `needs you · ${result.steps} steps`;
-      const field = (result.action && result.action.selector) || "a field";
-      appendNotice(`Everything else is done — ${field} needs your own input (it's redacted, so the agent can't see or fill it). Fill it in yourself, then re-run to continue.`);
+      const fieldSel = (result.action && result.action.selector) || "a field";
+      appendNotice(`Everything else is done — ${fieldSel} needs your own input (it's redacted, so the agent can't see or fill it). Fill it in yourself, then re-run to continue.`);
       saveToHistory(task, result.steps, true);
     } else if (result.error) {
       el.statusChip.textContent = `error · ${result.steps} steps`;
@@ -320,6 +497,7 @@ el.primaryBtn.addEventListener("click", async () => {
     setRunning(false);
     clearStageTimers();
     setStage(-1);
+    await clearAttachmentsProfileOverride();
   }
 });
 
@@ -335,8 +513,8 @@ function appendError(msg) {
 function appendNotice(msg) {
   el.log.insertAdjacentHTML("beforeend",
     `<div class="step a-done" style="--ac:var(--ok)">
-       <div class="step-head"><span class="step-badge"><i class="ph-duotone ph-hand-tap"></i></span>
-       <span class="step-label">Needs your input</span></div>
+       <div class="step-head"><span class="step-badge"><i class="ph-duotone ph-info"></i></span>
+       <span class="step-label">Note</span></div>
        <div class="step-reason">${escapeHtml(msg)}</div>
      </div>`);
 }
@@ -347,6 +525,8 @@ el.resetBtn.addEventListener("click", () => {
   faces = 0; fields = 0;
   resetTelemetry();
   setStage(-1);
+  attachments = [];
+  renderFiles();
   el.statusChip.textContent = "idle";
   el.log.innerHTML =
     '<div class="empty" id="emptyState"><div class="badge"><i class="ph-duotone ph-scan-smiley"></i></div>' +
@@ -355,6 +535,139 @@ el.resetBtn.addEventListener("click", () => {
 
 document.querySelectorAll(".chip").forEach((chip) => {
   chip.addEventListener("click", () => { el.taskInput.value = chip.dataset.task; goPane("agent"); });
+});
+
+/* ---------- voice dictation ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recog = null, recording = false, baseText = "";
+
+if (!SR) {
+  el.micBtn.disabled = true;
+  el.micBtn.dataset.hint = "Voice input not supported here";
+} else {
+  recog = new SR();
+  recog.continuous = true;
+  recog.interimResults = true;
+  recog.lang = navigator.language || "en-US";
+
+  recog.addEventListener("result", (e) => {
+    let text = "";
+    for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
+    el.taskInput.value = (baseText ? baseText.replace(/\s*$/, "") + " " : "") + text.trim();
+  });
+  recog.addEventListener("error", (e) => {
+    stopDictation();
+    el.statusChip.textContent = e.error === "not-allowed" ? "mic permission denied" : `mic error · ${e.error}`;
+  });
+  recog.addEventListener("end", () => { if (recording) stopDictation(); });
+
+  const startDictation = () => {
+    if (recording) return;
+    recording = true;
+    baseText = el.taskInput.value;
+    el.micBtn.classList.add("rec");
+    el.micIcon.className = "ph-duotone ph-waveform";
+    el.micBtn.dataset.hint = "Listening… release to stop";
+    el.statusChip.textContent = "listening";
+    try { recog.start(); } catch (err) { console.warn(err); }
+  };
+
+  var stopDictation = () => {
+    if (!recording) return;
+    recording = false;
+    el.micBtn.classList.remove("rec");
+    el.micIcon.className = "ph-duotone ph-microphone";
+    el.micBtn.dataset.hint = "Press and hold to record";
+    if (el.statusChip.textContent === "listening") el.statusChip.textContent = "idle";
+    try { recog.stop(); } catch (err) { console.warn(err); }
+    el.taskInput.focus();
+  };
+
+  el.micBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); startDictation(); });
+  ["pointerup", "pointerleave", "pointercancel"].forEach((ev) =>
+    el.micBtn.addEventListener(ev, stopDictation));
+  el.micBtn.addEventListener("keydown", (e) => {
+    if (e.key === " " || e.key === "Enter") { e.preventDefault(); startDictation(); }
+  });
+  el.micBtn.addEventListener("keyup", (e) => {
+    if (e.key === " " || e.key === "Enter") stopDictation();
+  });
+  window.addEventListener("blur", () => stopDictation());
+}
+
+/* ---------- full-tab view ---------- */
+const isFullView = new URLSearchParams(location.search).get("view") === "full";
+if (isFullView) document.body.classList.add("full");
+
+if (el.expandBtn) {
+  el.expandBtn.addEventListener("click", () => {
+    const url = chrome.runtime.getURL("sidepanel/sidepanel.html") + "?view=full";
+    if (chrome.tabs && chrome.tabs.create) chrome.tabs.create({ url });
+    else window.open(url, "_blank");
+  });
+}
+
+/* ---------- attachments ---------- */
+let attachments = [];
+const MAX_BYTES = 8 * 1024 * 1024;
+
+function fmtSize(b) {
+  if (b < 1024) return b + " B";
+  if (b < 1024 * 1024) return (b / 1024).toFixed(0) + " KB";
+  return (b / 1048576).toFixed(1) + " MB";
+}
+
+function iconFor(type, name) {
+  if (/^image\//.test(type)) return "ph-image";
+  if (type === "application/pdf" || /\.pdf$/i.test(name)) return "ph-file-pdf";
+  if (/^text\/csv/.test(type) || /\.(csv|xlsx?)$/i.test(name)) return "ph-table";
+  if (/^(text\/|application\/json)/.test(type)) return "ph-file-text";
+  return "ph-paperclip";
+}
+
+function renderFiles() {
+  el.fileList.classList.toggle("on", attachments.length > 0);
+  el.fileList.innerHTML = attachments.map((f, i) =>
+    `<span class="file"><i class="ph-duotone ${iconFor(f.type, f.name)}"></i>` +
+    `<span class="fname" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>` +
+    `<span class="fsize">${fmtSize(f.size)}</span>` +
+    `<button class="fx" data-i="${i}" title="Remove"><i class="ph-duotone ph-x"></i></button></span>`).join("");
+  el.fileList.querySelectorAll(".fx").forEach((b) => {
+    b.addEventListener("click", () => { attachments.splice(+b.dataset.i, 1); renderFiles(); });
+  });
+}
+
+function readAsDataUrl(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = () => rej(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
+async function addFiles(list) {
+  for (const file of Array.from(list)) {
+    if (file.size > MAX_BYTES) { el.statusChip.textContent = `${file.name} is too large`; continue; }
+    if (attachments.some((a) => a.name === file.name && a.size === file.size)) continue;
+    try {
+      attachments.push({ name: file.name, type: file.type || "application/octet-stream", size: file.size, dataUrl: await readAsDataUrl(file) });
+    } catch (e) { console.warn(e); }
+  }
+  renderFiles();
+}
+
+el.attachBtn.addEventListener("click", () => el.fileInput.click());
+el.fileInput.addEventListener("change", async () => { await addFiles(el.fileInput.files); el.fileInput.value = ""; });
+
+const composerCard = document.querySelector(".composer-card");
+["dragenter", "dragover"].forEach((ev) =>
+  composerCard.addEventListener(ev, (e) => { e.preventDefault(); composerCard.classList.add("drop"); }));
+["dragleave", "drop"].forEach((ev) =>
+  composerCard.addEventListener(ev, () => composerCard.classList.remove("drop")));
+composerCard.addEventListener("drop", (e) => {
+  e.preventDefault();
+  if (e.dataTransfer && e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
 });
 
 /* ------------------------------ step messages ----------------------------- */
@@ -434,14 +747,16 @@ function escapeAttr(str) { return escapeHtml(str).replace(/"/g, "&quot;"); }
 
 /* ---------------------------------- boot --------------------------------- */
 (async function boot() {
-  const saved = await store.get(["agentOptions", "agentHistory", "agentUiPrefs"]);
+  const saved = await store.get(["agentOptions", "agentHistory", "agentUiPrefs", "agentProfile"]);
   if (saved.agentOptions) options = { ...options, ...saved.agentOptions };
   if (saved.agentUiPrefs) prefs = { ...prefs, ...saved.agentUiPrefs };
   if (Array.isArray(saved.agentHistory)) history = saved.agentHistory;
+  if (saved.agentProfile) profile = saved.agentProfile;
 
   applyTheme();
   setRail(false);
   applyOptions();
+  loadProfileIntoForm();
   renderHistory();
   resetTelemetry();
   setStage(-1);

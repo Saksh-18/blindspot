@@ -91,6 +91,19 @@ html[data-theme="espresso"] .scrim{background:rgba(0,0,0,.5)}
 .chip-status{display:flex;align-items:center;gap:6px;background:var(--sf);border:1px solid var(--ln);border-radius:99px;padding:5px 10px;
   box-shadow:var(--el);flex-shrink:0;backdrop-filter:blur(18px) saturate(1.4)}
 .chip-status .led{width:6px;height:6px;border-radius:50%;background:var(--am)}
+#expandBtn{background:var(--hbase);border:1px solid var(--hbd);color:var(--tx2);border-radius:10px;width:30px;height:30px;flex-shrink:0;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;padding:0;font-size:15px;backdrop-filter:blur(12px) saturate(1.3);transition:background .18s ease,color .18s ease,border-color .18s ease}
+#expandBtn:hover{background:var(--am-soft);color:var(--am-d);border-color:var(--am)}
+/* full-tab view: rail pinned open, content held to a readable measure */
+body.full .rail{width:184px}
+body.full .rail .lbl{opacity:1;max-width:120px}
+body.full .rail .cap{opacity:1;height:auto;padding:6px 6px 6px}
+body.full #railBtn,body.full #expandBtn{display:none}
+body.full .main{margin-left:184px}
+body.full .topbar,body.full .composer{width:100%;max-width:892px;margin-left:auto;margin-right:auto}
+body.full .panes{padding-left:max(16px,calc((100% - 892px) / 2 + 16px));padding-right:max(16px,calc((100% - 892px) / 2 + 16px))}
+body.full .topbar{padding-top:24px}
+body.full .pane-title{font-size:20px}
 .chip-status span{font-size:10.5px;letter-spacing:.06em;color:var(--tx2)}
 .track{margin-top:12px;height:3px;border-radius:99px;background:var(--ln);overflow:hidden;position:relative}
 .track .bar{position:absolute;inset:0;width:24%;border-radius:99px;background:var(--am);opacity:0}
@@ -221,6 +234,16 @@ body.running .track .bar{opacity:1;animation:sweep 1.4s linear infinite}
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 #debugDom .sensitive{color:var(--warn)}
 
+/* profile */
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--tx3)}
+.field input,.field select{background:var(--sf2);border:1px solid var(--ln);border-radius:9px;padding:9px 10px;font:inherit;font-size:12.5px;
+  color:var(--tx);width:100%}
+.field select{appearance:none;-webkit-appearance:none}
+.field input:focus-visible,.field select:focus-visible{outline:2px solid var(--am);outline-offset:1px;border-color:var(--am)}
+.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+#pane-profile code{background:var(--sf2);border-radius:5px;padding:1px 5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px}
+
 /* composer */
 .composer{flex-shrink:0;padding:10px 16px 14px}
 .composer-card{background:var(--sf);border:1px solid var(--ln);border-radius:16px;padding:11px;box-shadow:var(--el2);backdrop-filter:blur(18px) saturate(1.4)}
@@ -240,6 +263,30 @@ body.running .track .bar{opacity:1;animation:sweep 1.4s linear infinite}
 #resetBtn{background:var(--hbase);border:1px solid var(--hbd);color:var(--tx2);border-radius:11px;width:40px;cursor:pointer;display:flex;
   align-items:center;justify-content:center;padding:0;backdrop-filter:blur(12px) saturate(1.3);transition:background .18s ease,color .18s ease,border-color .18s ease}
 #resetBtn:hover{background:var(--am-soft);color:var(--am-d);border-color:var(--am)}
+#attachBtn{background:var(--hbase);border:1px solid var(--hbd);color:var(--tx2);border-radius:11px;width:40px;cursor:pointer;display:flex;
+  align-items:center;justify-content:center;padding:0;font-size:16px;backdrop-filter:blur(12px) saturate(1.3);transition:background .18s ease,color .18s ease,border-color .18s ease}
+#attachBtn:hover{background:var(--am-soft);color:var(--am-d);border-color:var(--am)}
+#micBtn{background:var(--hbase);border:1px solid var(--hbd);color:var(--tx2);border-radius:11px;width:40px;cursor:pointer;display:flex;
+  align-items:center;justify-content:center;padding:0;font-size:16px;position:relative;backdrop-filter:blur(12px) saturate(1.3);
+  transition:background .18s ease,color .18s ease,border-color .18s ease}
+#micBtn:hover{background:var(--am-soft);color:var(--am-d);border-color:var(--am)}
+#micBtn.rec{background:var(--am);border-color:var(--am);color:var(--onam);animation:micpulse 1.3s ease-in-out infinite}
+@keyframes micpulse{0%,100%{box-shadow:0 0 0 0 var(--am-soft)}50%{box-shadow:0 0 0 6px var(--am-soft)}}
+#micBtn[disabled]{opacity:.4;cursor:not-allowed}
+.hint{position:relative}
+.hint::after{content:attr(data-hint);position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%) translateY(3px);
+  background:var(--tx);color:var(--bg);font-size:10.5px;letter-spacing:.02em;white-space:nowrap;padding:5px 9px;border-radius:8px;
+  opacity:0;pointer-events:none;transition:opacity .16s ease,transform .16s ease;box-shadow:var(--el2)}
+.hint:hover::after,.hint.rec::after{opacity:1;transform:translateX(-50%) translateY(0)}
+.files{display:none;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+.files.on{display:flex}
+.file{display:flex;align-items:center;gap:6px;max-width:100%;background:var(--sf2);border:1px solid var(--ln);border-radius:9px;padding:4px 6px 4px 8px;font-size:10.5px;color:var(--tx2)}
+.file i{font-size:13px;color:var(--am-d);flex-shrink:0}
+.file .fname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px;color:var(--tx)}
+.file .fsize{font-variant-numeric:tabular-nums;opacity:.7;flex-shrink:0}
+.file .fx{background:none;border:0;color:var(--tx2);cursor:pointer;padding:0 1px;font:inherit;font-size:12px;line-height:1;display:flex;flex-shrink:0}
+.file .fx:hover{color:var(--warn)}
+.drop{outline:2px dashed var(--am);outline-offset:3px}
 </style>
 </head>
 <body>
@@ -278,6 +325,10 @@ body.running .track .bar{opacity:1;animation:sweep 1.4s linear infinite}
 
   <div class="cap">Pipeline</div>
 
+  <button class="nav" data-pane="profile" title="Profile">
+    <span class="ic"><i class="ph-duotone ph-identification-card"></i></span>
+    <span class="lbl txt">Profile</span>
+  </button>
   <button class="nav" data-pane="cfg" title="Settings">
     <span class="ic"><i class="ph-duotone ph-sliders-horizontal"></i></span>
     <span class="lbl txt">Settings</span>
@@ -305,6 +356,7 @@ body.running .track .bar{opacity:1;animation:sweep 1.4s linear infinite}
         <div class="pane-sub" id="paneSub">Live reasoning loop</div>
       </div>
       <div class="chip-status"><span class="led"></span><span class="num" id="statusChip">idle</span></div>
+      <button id="expandBtn" title="Open in a full tab"><i class="ph-duotone ph-arrows-out"></i></button>
     </div>
     <div class="track"><div class="bar"></div></div>
   </div>
@@ -397,6 +449,54 @@ body.running .track .bar{opacity:1;animation:sweep 1.4s linear infinite}
       <div id="history"></div>
     </div>
 
+    <!-- PROFILE -->
+    <div class="pane" id="pane-profile">
+      <div class="card">
+        <div class="set-title">Local autofill profile</div>
+        <div class="set-desc">Stored only on this device — never sent to the server. The agent only ever sees a token name for these fields (e.g. <code>{{profile.email}}</code>); the real value is filled in locally, right before it's typed.</div>
+      </div>
+      <div class="card">
+        <div class="kicker" style="margin-bottom:9px">Name</div>
+        <div class="field-grid">
+          <div class="field"><label for="pf_first_name">First name</label><input id="pf_first_name" data-key="first_name" placeholder="Sakshi"></div>
+          <div class="field"><label for="pf_last_name">Last name</label><input id="pf_last_name" data-key="last_name" placeholder="Jha"></div>
+        </div>
+        <div class="field" style="margin-top:10px"><label for="pf_full_name">Full name</label><input id="pf_full_name" data-key="full_name" placeholder="Sakshi Jha"></div>
+      </div>
+      <div class="card">
+        <div class="kicker" style="margin-bottom:9px">Contact</div>
+        <div class="field"><label for="pf_email">Email</label><input id="pf_email" data-key="email" type="email" placeholder="you@example.com"></div>
+        <div class="field" style="margin-top:10px"><label for="pf_phone">Phone</label><input id="pf_phone" data-key="phone" type="tel" placeholder="+91 9876543210"></div>
+        <div class="field" style="margin-top:10px"><label for="pf_dob">Date of birth</label><input id="pf_dob" data-key="date_of_birth" placeholder="20 Jul 2003"></div>
+        <div class="field" style="margin-top:10px">
+          <label for="pf_gender">Gender</label>
+          <select id="pf_gender" data-key="gender">
+            <option value=""></option>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+            <option value="Non-binary">Non-binary</option>
+            <option value="Other">Other</option>
+            <option value="Prefer not to say">Prefer not to say</option>
+          </select>
+        </div>
+      </div>
+      <div class="card">
+        <div class="kicker" style="margin-bottom:9px">Address</div>
+        <div class="field"><label for="pf_addr1">Address line 1</label><input id="pf_addr1" data-key="address_line1" placeholder="Kailash Heights, C Wing"></div>
+        <div class="field" style="margin-top:10px"><label for="pf_addr2">Address line 2</label><input id="pf_addr2" data-key="address_line2" placeholder="1101"></div>
+        <div class="field-grid" style="margin-top:10px">
+          <div class="field"><label for="pf_city">City</label><input id="pf_city" data-key="city" placeholder="Virar West"></div>
+          <div class="field"><label for="pf_state">State</label><input id="pf_state" data-key="state" placeholder="Maharashtra"></div>
+        </div>
+        <div class="field-grid" style="margin-top:10px">
+          <div class="field"><label for="pf_zip">ZIP / postal code</label><input id="pf_zip" data-key="zip_code" placeholder="401305"></div>
+          <div class="field"><label for="pf_country">Country</label><input id="pf_country" data-key="country" placeholder="India"></div>
+        </div>
+      </div>
+      <button class="wide" id="profileSaveBtn" style="background:var(--am);color:var(--onam);border-color:var(--am)"><i class="ph-duotone ph-check-circle"></i>Save profile</button>
+      <div class="mono-box" id="profileStatus" style="text-align:center">Not saved yet.</div>
+    </div>
+
     <!-- SETTINGS -->
     <div class="pane" id="pane-cfg">
       <div class="card">
@@ -437,8 +537,12 @@ body.running .track .bar{opacity:1;animation:sweep 1.4s linear infinite}
         <button class="chip" data-task="Fill in the registration form and click submit">Fill a form</button>
         <button class="chip" data-task="Find the sign in button and click it">Sign in</button>
       </div>
+      <div class="files" id="fileList"></div>
       <textarea id="taskInput" placeholder="What should the agent do?"></textarea>
+      <input type="file" id="fileInput" multiple hidden>
       <div class="btn-row">
+        <button id="attachBtn" title="Attach files"><i class="ph-duotone ph-plus"></i></button>
+        <button id="micBtn" class="hint" data-hint="Press and hold to record" aria-label="Dictate the task"><i class="ph-duotone ph-microphone" id="micIcon"></i></button>
         <button id="primaryBtn"><i class="ph-duotone ph-play-circle" id="primaryIcon"></i><span id="primaryLabel">Run agent</span></button>
         <button id="resetBtn" title="Clear the run"><i class="ph-duotone ph-arrow-counter-clockwise"></i></button>
       </div>
