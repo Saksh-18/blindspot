@@ -59,9 +59,13 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-**Extension**
-- `chrome://extensions` → Developer mode → Load unpacked → select `extension/`
-- Model weights go in `extension/models/` (add a fetch script once you've picked models)
+**Extension (Multi-Browser Support)**
+- **Google Chrome / Brave / Opera**: `chrome://extensions` → Developer mode → Load unpacked → select `extension/`
+- **Microsoft Edge**: `edge://extensions` → Developer mode → Load unpacked → select `extension/`
+- **Mozilla Firefox**: `about:debugging#/runtime/this-firefox` → Load Temporary Add-on... → select `manifest.json` in `extension-firefox/`
+- *Build / Sync Firefox bundle*: `python scripts/build_extension.py` (or `--zip` for release packages)
+- For comprehensive browser configuration, see [docs/browser_setup.md](docs/browser_setup.md).
+- Model weights are located in `extension/models/`.
 
 ## Status
 

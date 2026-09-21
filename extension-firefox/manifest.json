@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Privacy-Preserving Vision Agent",
+  "version": "0.1.0",
+  "description": "On-device visual perception + PII redaction before any screen context leaves the browser.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "blindspot-agent@privacy.local",
+      "strict_min_version": "109.0"
+    }
+  },
+  "permissions": ["activeTab", "scripting", "storage", "tabs"],
+  "host_permissions": ["http://localhost:8000/*", "<all_urls>"],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["vision/lib/ort.min.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Privacy-Preserving Vision Agent"
+  },
+  "sidebar_action": {
+    "default_panel": "sidepanel/sidepanel.html",
+    "default_title": "Privacy-Preserving Vision Agent",
+    "open_at_install": false
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["models/*", "vision/*", "vision/lib/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
