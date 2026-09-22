@@ -26,7 +26,7 @@ from schemas import AgentAction, AgentStepRequest, ActionType, ScrollDirection
 
 PROVIDER = "groq"  # "groq" | "local" | "cloud"
 
-GROQ_MODEL = "qwen/qwen3.6-27b"  # open-weights, vision-capable, Groq free tier
+GROQ_MODEL = "qwen/qwen3.8-27b"  # open-weights, vision-capable, Groq free tier
 
 _groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
