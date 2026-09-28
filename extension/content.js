@@ -12,11 +12,12 @@
 const SENSITIVE_SELECTORS = [
   'input[type="password"]',
   'input[autocomplete*="cc-"]',
+  'input[autocomplete="one-time-code"]',
   '[data-sensitive]',
 ];
 
 const SENSITIVE_KEYWORD_REGEX =
-  /ssn|social security|national insurance\b|credit card|debit card|\bcvv\b|password|\botp\b|passcode|security code|aadhaar|\bpan\b|passport|driving licen[cs]e|voter id|ration card|account number|routing number|\bifsc\b|\bswift\b|\biban\b|\bupi\b|bank(?:\s|$)|salary|policy number|insurance|medical record|diagnosis|prescription|employee id/i;
+  /ssn|social security|national insurance\b|credit card|debit card|\bcvv\b|password|\botp\b|passcode|security code|verification code|\bpin\b|security pin|aadhaar|\bpan\b|passport|driving licen[cs]e|voter id|ration card|account number|routing number|\bifsc\b|\bswift\b|\biban\b|\bupi\b|bank(?:\s|$)|salary|policy number|insurance|medical record|diagnosis|prescription|employee id/i;
 
 /**
  * Convenience profile fields — stored locally (chrome.storage.local, never
@@ -138,13 +139,10 @@ const INTERACTIVE_ROLES = [
 // a card number in a confirmation screen, etc. These run against every text
 // node on the page, not just inputs.
 const TEXT_PII_PATTERNS = [
-  // Catches "your OTP is 123456" — keyword and digits in the SAME text node.
-  { type: "otp", regex: /\b(?:otp|one[- ]?time (?:password|code)|verification code)\b[^0-9]{0,20}(\d{4,8})\b/i },
-  // The far more common real phrasing is the OTHER order — subject lines
-  // and email bodies routinely lead with the code: "104456 is your
-  // verification code" / "104456 is your OTP". The pattern above can't
-  // match this at all since it only looks for keyword-then-digits.
-  { type: "otp", regex: /\b(\d{4,8})\b[^0-9]{0,30}\b(?:is\s+(?:your|the)\s+)?(?:otp|one[- ]?time (?:password|code)|verification code|security code|passcode|pin|code)\b/i },
+  // Catches "your OTP is 123456" or "your OTP is 123-456" — keyword and digits in the SAME text node.
+  { type: "otp", regex: /\b(?:otp|one[- ]?time (?:password|code|passcode)|verification code|security code|auth[- ]?code)\b[^0-9]{0,20}(\d{3,4}[ -]?\d{3,4})\b/i },
+  // Leading code: "104456 is your verification code" / "104-456 is your OTP".
+  { type: "otp", regex: /\b(\d{3,4}[ -]?\d{3,4})\b[^0-9]{0,30}\b(?:is\s+(?:your|the)\s+)?(?:otp|one[- ]?time (?:password|code|passcode)|verification code|security code|passcode|auth code|pin|code)\b/i },
   { type: "email", regex: /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9-]+\.[a-zA-Z]{2,}\b/ },
   { type: "receipt_no", regex: /\b(?:receipt|invoice|order|txn|transaction)[\s#:.-]*(?:no\.?|number|id)?[\s#:.-]*[A-Z0-9-]{5,}/i },
   // Requires the grouped/separated formatting a card number is actually
@@ -159,15 +157,9 @@ const TEXT_PII_PATTERNS = [
   { type: "pan", regex: /\b[A-Z]{5}\d{4}[A-Z]\b/ },
 ];
 
-// Most real OTP emails put the keyword ("verification code", "verify your
-// email", etc.) in one element and the bare digits in a separate, visually
-// isolated block (a big bold/highlighted code) — the two never share a
-// single text node, so the same-node "otp" pattern above can't see them
-// together. Instead: check once whether OTP-context wording appears
-// ANYWHERE on the page, and if so, treat any text node that's ENTIRELY just
-// a 4-8 digit code (not digits embedded in a longer sentence/price/date) as
-// a probable OTP.
-const OTP_CONTEXT_REGEX = /\b(?:otp|one[- ]?time (?:password|code)|verification|verify|confirmation code|security code|passcode|access code|sign-?in code|login code)\b/i;
+// Context keywords indicating OTP / 2FA verification on the page.
+const OTP_CONTEXT_REGEX =
+  /\b(?:otp|one[- ]?time (?:password|code|passcode)|verification|verify|authenticat(?:ion|or)|auth[- ]?code|2[- ]?fa|two[- ]?factor|two[- ]?step|multi[- ]?factor|mfa|confirmation code|security code|passcode|access code|sign-?in code|login code|security pin|\bpin\b|sms code|text code|digit code|enter(?: the)? code)\b/i;
 const BARE_CODE_REGEX = /^\d[\d -]{2,10}\d$/;
 function looksLikeBareCode(trimmed) {
   if (!BARE_CODE_REGEX.test(trimmed)) return false;
@@ -257,76 +249,143 @@ function findTextPii(pageHasOtpContext) {
  * "1", "0", "4"... — rather than one text node holding "104456". No single
  * node ever has 4+ digits, so findTextPii()'s bare-code check can't see it.
  *
- * Grouping by shared DOM parent doesn't work in practice — real markup
- * often wraps each digit in its OWN individual container (so all six
- * digits have six different immediate parents). What's actually reliable
- * is that they're always laid out as a horizontal row visually, regardless
- * of DOM nesting — so this clusters by position (same line, small
- * horizontal gaps) instead of by ancestor.
- *
- * Only runs when OTP-context wording is present on the page (cheap-checked
- * by the caller) — a full-DOM scan isn't worth doing otherwise.
+ * This function clusters digit/masked boxes across rows and contiguous runs,
+ * correctly identifies both the individual boxes and the combined bounding box,
+ * and handles parent box wrappers, input values, and gap spacing.
  */
 function findSegmentedOtpDigits() {
   const digitItems = [];
-  const all = document.body.querySelectorAll("*");
+  const all = document.querySelectorAll("input, div, span, p, td, li, b, strong, [role='textbox']");
 
   for (const el of all) {
-    let text;
-    if (el.tagName === "INPUT") {
-      // A real OTP *entry* field (maxlength=1 per box) holds its digit in
-      // .value, not textContent — an <input> never has text children at
-      // all, so the leaf-element text check below can't see it.
-      text = (el.value || "").trim();
+    const isInput = el.tagName === "INPUT" || el.getAttribute("role") === "textbox";
+    let text = "";
+    let isSingleCharBox = false;
+
+    if (isInput) {
+      const val = (el.value || "").trim();
+      const maxLen = el.getAttribute("maxlength");
+      const isOtpInput =
+        maxLen === "1" ||
+        el.getAttribute("autocomplete") === "one-time-code" ||
+        /otp|digit|pin|code|verification|2fa|auth/i.test(
+          (el.className || "") + " " + (el.id || "") + " " + (el.name || "") + " " + (el.getAttribute("aria-label") || "")
+        );
+
+      if (val.length === 1 && /^[\d\w•*●▪︎-]$/.test(val)) {
+        text = val;
+        isSingleCharBox = true;
+      } else if (isOtpInput && val.length <= 1) {
+        text = val;
+        isSingleCharBox = true;
+      }
     } else {
       if (el.children.length > 0) continue; // only leaf elements
       text = (el.textContent || "").trim();
+      if (/^[\d\w•*●▪︎-]$/.test(text)) {
+        isSingleCharBox = true;
+      }
     }
-    if (!/^\d$/.test(text)) continue; // exactly one digit, nothing else
 
-    const rect = el.getBoundingClientRect();
+    if (!isSingleCharBox) continue;
+
+    let rect = el.getBoundingClientRect();
     if (!isInViewport(rect)) continue;
-    digitItems.push({ el, rect });
-  }
-  if (digitItems.length < 4) return { regions: [], elements: new Set() };
 
-  // Cluster into rows: rects whose vertical centers land close together.
+    let targetEl = el;
+    const parent = el.parentElement;
+    if (parent && parent !== document.body) {
+      const pRect = parent.getBoundingClientRect();
+      // If parent is a small box container around this single digit (e.g. width/height <= 120px)
+      if (
+        pRect.width >= rect.width &&
+        pRect.width <= 120 &&
+        pRect.height <= 120 &&
+        parent.children.length === 1
+      ) {
+        rect = pRect;
+        targetEl = parent;
+      }
+    }
+
+    digitItems.push({ el, targetEl, rect, text });
+  }
+
+  if (digitItems.length < 3) return { regions: [], elements: new Set() };
+
+  // Cluster into rows: rects whose vertical centers land close together or overlap vertically
   const rows = [];
   for (const item of digitItems) {
     const cy = item.rect.y + item.rect.height / 2;
-    let row = rows.find((r) => Math.abs(r.cy - cy) < Math.max(6, item.rect.height * 0.4));
+    let row = rows.find((r) => {
+      const avgCy = r.cySum / r.items.length;
+      return (
+        Math.abs(avgCy - cy) < Math.max(12, item.rect.height * 0.6) ||
+        (Math.max(r.minY, item.rect.y) < Math.min(r.maxY, item.rect.y + item.rect.height))
+      );
+    });
     if (!row) {
-      row = { cy, items: [] };
+      row = {
+        cySum: cy,
+        minY: item.rect.y,
+        maxY: item.rect.y + item.rect.height,
+        items: [],
+      };
       rows.push(row);
+    } else {
+      row.cySum += cy;
+      row.minY = Math.min(row.minY, item.rect.y);
+      row.maxY = Math.max(row.maxY, item.rect.y + item.rect.height);
     }
     row.items.push(item);
   }
 
   const regions = [];
   const elements = new Set();
+
   for (const row of rows) {
     row.items.sort((a, b) => a.rect.x - b.rect.x);
-    // Split each row into contiguous horizontal runs — boxes close enough
-    // together (generous gap allowance for box borders/spacing) belong to
-    // the same code; a big jump starts a new run.
+
+    // Split each row into contiguous horizontal runs
     let run = [row.items[0]];
     const flushRun = () => {
-      if (run.length >= 4 && run.length <= 8) {
+      if (run.length >= 3 && run.length <= 10) {
         const rects = run.map((it) => it.rect);
-        const x = Math.min(...rects.map((r) => r.x));
-        const y = Math.min(...rects.map((r) => r.y));
-        const right = Math.max(...rects.map((r) => r.x + r.width));
-        const bottom = Math.max(...rects.map((r) => r.y + r.height));
-        regions.push({ x, y, w: right - x, h: bottom - y });
-        run.forEach((it) => elements.add(it.el));
+        const minX = Math.min(...rects.map((r) => r.x));
+        const minY = Math.min(...rects.map((r) => r.y));
+        const maxX = Math.max(...rects.map((r) => r.x + r.width));
+        const maxY = Math.max(...rects.map((r) => r.y + r.height));
+
+        // Add each individual box region with padding for full pixel coverage
+        for (const it of run) {
+          regions.push({
+            x: it.rect.x - 2,
+            y: it.rect.y - 2,
+            w: it.rect.width + 4,
+            h: it.rect.height + 4,
+          });
+          elements.add(it.el);
+          if (it.targetEl) elements.add(it.targetEl);
+        }
+
+        // Add overall combined container region as well
+        regions.push({
+          x: minX - 3,
+          y: minY - 3,
+          w: maxX - minX + 6,
+          h: maxY - minY + 6,
+        });
       }
     };
+
     for (let i = 1; i < row.items.length; i++) {
       const prev = row.items[i - 1];
       const curr = row.items[i];
       const gap = curr.rect.x - (prev.rect.x + prev.rect.width);
       const avgW = (prev.rect.width + curr.rect.width) / 2;
-      if (gap <= avgW * 3) {
+
+      // Allow spacing up to 4x box width or 75px between boxes in the same run
+      if (gap >= -5 && gap <= Math.max(75, avgW * 4)) {
         run.push(curr);
       } else {
         flushRun();
@@ -393,12 +452,16 @@ function sanitizeDom(otpElements, profile) {
     const isEmpty = !rawText.trim();
     const { masked, hit } = maskPiiInText(rawText);
 
+    const isOtpElement =
+      otpElements.has(el) ||
+      [...otpElements].some((o) => o === el || el.contains(o) || o.contains(el));
+
     const isHardSensitive =
       SENSITIVE_SELECTORS.some((sel) => el.matches(sel)) ||
       SENSITIVE_KEYWORD_REGEX.test(el.getAttribute("aria-label") || "") ||
       SENSITIVE_KEYWORD_REGEX.test(el.name || "") ||
       SENSITIVE_KEYWORD_REGEX.test(getFieldLabelText(el)) ||
-      otpElements.has(el);
+      isOtpElement;
 
     const profileKey = isHardSensitive ? null : matchFieldToProfileKey(el);
     const hasProfileValue = profileKey && typeof profile[profileKey] === "string" && profile[profileKey].trim();
@@ -452,9 +515,17 @@ async function captureAndSanitize(options = {}) {
   // forced sensitive in the DOM JSON too — not just blacked out in the
   // image. Without this, each box's own value would still leak as text.
   const t0b = performance.now();
-  const pageHasOtpContext = runDom && OTP_CONTEXT_REGEX.test(document.body.innerText || "");
+  const bodyText = (document.body.innerText || "") + " " + (document.title || "");
+  const hasOtpSignals =
+    OTP_CONTEXT_REGEX.test(bodyText) ||
+    Boolean(
+      document.querySelector(
+        'input[autocomplete="one-time-code"], input[maxlength="1"], [class*="otp" i], [id*="otp" i], [data-testid*="otp" i], [name*="otp" i]'
+      )
+    );
+  const pageHasOtpContext = runDom && hasOtpSignals;
   console.log(`[otp-debug] pageHasOtpContext: ${pageHasOtpContext}`);
-  const segmentedOtp = pageHasOtpContext ? findSegmentedOtpDigits() : { regions: [], elements: new Set() };
+  const segmentedOtp = runDom ? findSegmentedOtpDigits() : { regions: [], elements: new Set() };
   timings.findSegmentedOtpMs = performance.now() - t0b;
 
   const profile = await getProfile();
@@ -566,7 +637,9 @@ async function typeIntoElement(selector, text) {
     SENSITIVE_SELECTORS.some((sel) => el.matches(sel)) ||
     SENSITIVE_KEYWORD_REGEX.test(el.getAttribute("aria-label") || "") ||
     SENSITIVE_KEYWORD_REGEX.test(el.name || "") ||
-    SENSITIVE_KEYWORD_REGEX.test(getFieldLabelText(el));
+    SENSITIVE_KEYWORD_REGEX.test(getFieldLabelText(el)) ||
+    el.getAttribute("autocomplete") === "one-time-code" ||
+    (el.getAttribute("maxlength") === "1" && /otp|digit|code|pin|verification|2fa/i.test((el.className || "") + " " + (el.id || "") + " " + (el.name || "")));
   if (isHardSensitive) {
     return { matched: false, reason: "blocked_sensitive_field" };
   }

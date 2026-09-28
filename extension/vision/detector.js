@@ -241,18 +241,63 @@ export async function detectSensitiveRegions(imageDataUrl) {
     // 6. Run Non-Maximum Suppression (NMS)
     const picked = runNMS(candidates, 0.3);
 
-    // 7. Map relative coordinates back to CSS viewport pixels
-    return picked.map((c) => {
+    // 7. Map relative coordinates back to CSS viewport pixels and extract ID card credentials
+    const results = [];
+    for (const c of picked) {
       const [x1, y1, x2, y2] = c.box;
-      return {
-        x: x1 * window.innerWidth,
-        y: y1 * window.innerHeight,
-        w: (x2 - x1) * window.innerWidth,
-        h: (y2 - y1) * window.innerHeight,
+      const fw = x2 - x1;
+      const fh = y2 - y1;
+
+      // 1. Face region (with margin so full photo frame is blurred)
+      const faceX1 = Math.max(0.0, x1 - fw * 0.15);
+      const faceY1 = Math.max(0.0, y1 - fh * 0.2);
+      const faceX2 = Math.min(1.0, x2 + fw * 0.15);
+      const faceY2 = Math.min(1.0, y2 + fh * 0.2);
+      results.push({
+        x: faceX1 * window.innerWidth,
+        y: faceY1 * window.innerHeight,
+        w: (faceX2 - faceX1) * window.innerWidth,
+        h: (faceY2 - faceY1) * window.innerHeight,
         type: "face",
         confidence: c.score
-      };
-    });
+      });
+
+      // 2. Full Aadhaar / ID Card Number zone (covers all 12 digits e.g. "1234 5678 9012")
+      const numX1 = Math.max(0.0, x1 - fw * 0.4);
+      const numY1 = Math.min(1.0, y1 + fh * 0.85);
+      const numX2 = Math.min(1.0, x1 + fw * 5.2);
+      const numY2 = Math.min(1.0, y1 + fh * 1.85);
+
+      if (numX2 > numX1 && numY2 > numY1) {
+        results.push({
+          x: numX1 * window.innerWidth,
+          y: numY1 * window.innerHeight,
+          w: (numX2 - numX1) * window.innerWidth,
+          h: (numY2 - numY1) * window.innerHeight,
+          type: "aadhaar_number",
+          confidence: c.score
+        });
+      }
+
+      // 3. Full ID Card Details zone (Name "John Smith", DOB, Gender, Address)
+      const detX1 = Math.min(1.0, x1 + fw * 0.7);
+      const detY1 = Math.max(0.0, y1 - fh * 0.5);
+      const detX2 = Math.min(1.0, x1 + fw * 5.2);
+      const detY2 = Math.min(1.0, y1 + fh * 1.05);
+
+      if (detX2 > detX1 && detY2 > detY1) {
+        results.push({
+          x: detX1 * window.innerWidth,
+          y: detY1 * window.innerHeight,
+          w: (detX2 - detX1) * window.innerWidth,
+          h: (detY2 - detY1) * window.innerHeight,
+          type: "id_details",
+          confidence: c.score
+        });
+      }
+    }
+
+    return results;
   } catch (err) {
     console.error("Local face detector failed during run:", err);
     return [];
