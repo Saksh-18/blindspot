@@ -91,10 +91,8 @@ async def get_next_action(req: AgentStepRequest) -> AgentAction:
 
 async def _call_groq(req: AgentStepRequest) -> dict:
     """
-    Sends the sanitized screenshot + DOM summary to Qwen3.6-27B via Groq and
-    asks for exactly one JSON action back. JSON mode is enabled, but the
-    prompt still spells out the exact shape since JSON mode only guarantees
-    valid JSON syntax, not the fields we actually need.
+    Sends the sanitized screenshot + DOM summary to Qwen3.8-27B via Groq and
+    asks for exactly one JSON action back.
     """
     prompt = _build_prompt(req)
 
@@ -109,17 +107,9 @@ async def _call_groq(req: AgentStepRequest) -> dict:
                 ],
             }
         ],
-        temperature=0.2,  # low temp — we want consistent, parseable actions, not creativity
-        max_completion_tokens=500,
+        temperature=0.1,  # low temperature for fast, deterministic actions
+        max_completion_tokens=300,
         response_format={"type": "json_object"},
-        # Qwen3.6 is a reasoning model — without this it spends an unbounded
-        # chunk of max_completion_tokens on hidden chain-of-thought before
-        # ever emitting the JSON answer. On the real (long) prompt this
-        # regularly ate the whole budget and left nothing for the actual
-        # response, which Groq then rejects as invalid JSON (400
-        # json_validate_failed, empty failed_generation). Disabling it also
-        # roughly quarters completion tokens per step, which matters a lot
-        # given this key's 8000 TPM cap.
         reasoning_effort="none",
     )
 
@@ -144,7 +134,7 @@ async def _call_cloud(req: AgentStepRequest) -> dict:
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=500,
+        max_tokens=300,
         messages=[
             {
                 "role": "user",
@@ -185,26 +175,26 @@ def _build_prompt(req: AgentStepRequest) -> str:
             line += "  [ALREADY FLAGGED for the user to fill in themselves — do not ask about this field again; move on to a different field, or say \"done\" if nothing else is left]"
         return line
 
-    history_summary = "\n".join(_format_history_entry(a) for a in req.history)
+    # Keep only the last 4 history entries to avoid token bloat and repetitive looping
+    recent_history = req.history[-4:] if len(req.history) > 4 else req.history
+    history_summary = "\n".join(_format_history_entry(a) for a in recent_history)
 
     return f"""You control a browser to complete this task: {req.task}
 
-You are looking at the CURRENT screenshot, taken after any actions listed
-below already happened. Sensitive regions are already blacked out — do not
-try to read or guess redacted content, work around it.
+You are looking at the CURRENT screenshot. Sensitive regions are already blacked out or blurred.
 
 Visible interactive elements right now (from the DOM, already sanitized):
 {dom_summary}
 
-Actions taken so far, and whether they actually worked:
+Recent actions taken so far:
 {history_summary or '(none yet)'}
 
-Look at the CURRENT screenshot carefully before deciding. Only choose
-"done" if the screenshot clearly shows the task is now complete — do not
-mark a click or type action as done in the same turn you perform it; you
-have not seen its effect yet. If a previous action failed, check why (shown
-in brackets above) and try a different element or approach — do not repeat
-the exact same failed action.
+CRITICAL RULES:
+1. If the task objective is already satisfied on the current screen (e.g. email verified, message sent, confirmation shown, page opened), output action "done" immediately with task_complete: true.
+2. Do NOT repeat the exact same click or type action if it was already performed in the recent history.
+3. Do NOT use action "wait" unless an active loading spinner is visibly spinning on screen.
+4. If a previous action failed, try a different element or finish.
+5. If the required field is [SENSITIVE], output action "ask_user" once to let the user fill it.
 
 Fields marked [SENSITIVE] in the DOM list have had their real content
 redacted before it ever reached you — you cannot see what's actually in

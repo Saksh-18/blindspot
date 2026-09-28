@@ -436,7 +436,7 @@ function maskPiiInText(text) {
 function sanitizeDom(otpElements, profile) {
   otpElements = otpElements || new Set();
   profile = profile || {};
-  const MAX_NODES = 150; // hard cap — past this the prompt gets huge and slow for no benefit
+  const MAX_NODES = 80; // optimized cap — keeps token latency low and response rapid
   const nodes = [];
   const roleSelectors = INTERACTIVE_ROLES.map((r) => `[role="${r}"]`).join(", ");
   const candidates = document.querySelectorAll(`button, a, input, select, textarea, ${roleSelectors}`);

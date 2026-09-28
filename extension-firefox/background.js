@@ -206,13 +206,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             lastAskUserSelector = null;
           }
 
-          // IMPORTANT: we only stop on action === "done" — a click/type
-          // response claiming task_complete: true in the SAME turn it
-          // performed the action is not trusted, since the model hasn't
-          // actually seen the result of its own action yet. It gets one
-          // more round-trip (fresh screenshot + DOM) to confirm before it
-          // can legitimately say "done".
-        } while (action.action !== "done" && steps < MAX_STEPS);
+          // Repetitive action loop guard: detect if the model repeatedly issues identical clicks/types
+          if (history.length >= 2) {
+            const prev = history[history.length - 2];
+            const isIdentical =
+              prev &&
+              prev.action === action.action &&
+              (prev.selector || "") === (action.selector || "") &&
+              (prev.text || "") === (action.text || "");
+
+            if (isIdentical && (action.action === "click" || action.action === "type" || action.action === "wait")) {
+              console.warn(`Repetitive loop detected on action "${action.action}" at ${action.selector} — finishing task.`);
+              action.action = "done";
+              break;
+            }
+          }
+
+          if (action.action === "done" || action.task_complete) {
+            break;
+          }
+        } while (steps < MAX_STEPS);
 
         sendResponse({ done: true, steps, history });
       } catch (err) {

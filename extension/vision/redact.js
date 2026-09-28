@@ -14,7 +14,7 @@
  * @returns {Promise<string>} redacted image as a data URL
  */
 export async function redactImage(imageDataUrl, regions, mode = "blackout", options = {}) {
-  const { maxDimension = 1280 } = options;
+  const { maxDimension = 960 } = options;
   const img = await loadImage(imageDataUrl);
 
   // captureVisibleTab captures at device-pixel resolution, but region boxes
@@ -54,7 +54,7 @@ export async function redactImage(imageDataUrl, regions, mode = "blackout", opti
     }
   }
 
-  const blob = await canvas.convertToBlob({ type: "image/png" });
+  const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.82 });
   return await blobToDataUrl(blob);
 }
 
