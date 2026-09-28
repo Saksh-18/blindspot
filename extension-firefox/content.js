@@ -580,10 +580,27 @@ async function captureAndSanitize(options = {}) {
     sanitizedDom: dom,
     timings,
     redactedBoxes: [
-      ...modelRegions.map(r => ({ type: "face", box: { x: r.x, y: r.y, w: r.w, h: r.h } })),
-      ...textPiiMatches.map(m => ({ type: m.type, box: m.box })),
-      ...dom.filter((n) => n.sensitive).map((n) => ({ type: "form_field", box: n.box })),
-      ...segmentedOtp.regions.map((box) => ({ type: "otp_segmented", box }))
+      ...modelRegions.map((r) => ({
+        type: r.type || "face",
+        label: r.type === "aadhaar_number" ? "Aadhaar / ID number" : (r.type === "id_details" ? "ID personal details" : "visual face region"),
+        box: { x: r.x, y: r.y, w: r.w, h: r.h }
+      })),
+      ...textPiiMatches.map((m) => ({
+        type: m.type,
+        label: `${m.type.toUpperCase()}: ${m.matchedText || "text match"}`,
+        box: m.box
+      })),
+      ...dom.filter((n) => n.sensitive).map((n) => ({
+        type: "form_field",
+        selector: n.selector,
+        label: `${n.tag}${n.selector}: ${n.text || "[REDACTED]"}`,
+        box: n.box
+      })),
+      ...segmentedOtp.regions.map((box, i) => ({
+        type: "otp_segmented",
+        label: `OTP box #${i + 1}`,
+        box
+      }))
     ],
     redactionReport: {
       domFieldsRedacted: dom.filter((n) => n.sensitive).length,

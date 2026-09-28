@@ -388,16 +388,22 @@ function updateTelemetry(t) {
   renderBars();
 
   const boxes = t.redactedBoxes || [];
-  faces += boxes.filter((b) => b.type === "face").length;
-  fields += boxes.filter((b) => b.type !== "face").length;
+  faces = boxes.filter((b) => b.type === "face").length;
+  fields = boxes.filter((b) => b.type !== "face").length;
   el.statFaces.textContent = faces;
   el.statFields.textContent = fields;
   el.shieldCount.textContent = faces + fields;
   el.shieldDot.classList.toggle("show", faces + fields > 0);
 
   if (boxes.length) {
-    const rows = boxes.slice(0, 6).map((b) => maskedRow(b.selector || b.label || "visual region", b.type || "region")).join("");
+    const rows = boxes.slice(0, 10).map((b) => {
+      const name = b.label || b.selector || (b.matchedText ? `text: ${b.matchedText}` : null) || b.type || "sensitive element";
+      const kind = b.type || "masked";
+      return maskedRow(name, kind);
+    }).join("");
     el.maskedList.innerHTML = rows;
+  } else {
+    el.maskedList.innerHTML = maskedRow("nothing masked yet", "—");
   }
   return { faces, fields };
 }
@@ -720,12 +726,24 @@ el.captureBtn.addEventListener("click", async () => {
       `${result.sanitizedDom.length} DOM nodes · ${r.domFieldsRedacted || 0} inputs masked · ` +
       `${r.textPiiRedacted || 0} text PII · ${r.visualRegionsRedacted || 0} faces`;
 
-    faces = r.visualRegionsRedacted || 0;
-    fields = (r.domFieldsRedacted || 0) + (r.textPiiRedacted || 0);
+    const boxes = result.redactedBoxes || [];
+    faces = boxes.filter((b) => b.type === "face").length || (r.visualRegionsRedacted || 0);
+    fields = boxes.filter((b) => b.type !== "face").length || ((r.domFieldsRedacted || 0) + (r.textPiiRedacted || 0));
     el.statFaces.textContent = faces;
     el.statFields.textContent = fields;
     el.shieldCount.textContent = faces + fields;
     el.shieldDot.classList.toggle("show", faces + fields > 0);
+
+    if (boxes.length) {
+      const rows = boxes.slice(0, 10).map((b) => {
+        const name = b.label || b.selector || (b.matchedText ? `text: ${b.matchedText}` : null) || b.type || "sensitive element";
+        const kind = b.type || "masked";
+        return maskedRow(name, kind);
+      }).join("");
+      el.maskedList.innerHTML = rows;
+    } else {
+      el.maskedList.innerHTML = maskedRow("nothing masked yet", "—");
+    }
 
     el.debugDom.innerHTML = result.sanitizedDom.slice(0, 30).map((n) =>
       `<div class="${n.sensitive ? "sensitive" : ""}">${escapeHtml(n.tag)} ${escapeHtml(n.selector)}: "${escapeHtml(n.text)}"</div>`
