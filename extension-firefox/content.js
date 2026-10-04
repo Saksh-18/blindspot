@@ -19,6 +19,9 @@ const SENSITIVE_SELECTORS = [
 const SENSITIVE_KEYWORD_REGEX =
   /ssn|social security|national insurance\b|credit card|debit card|\bcvv\b|password|\botp\b|passcode|security code|verification code|\bpin\b|security pin|aadhaar|\bpan\b|passport|driving licen[cs]e|voter id|ration card|account number|routing number|\bifsc\b|\bswift\b|\biban\b|\bupi\b|bank(?:\s|$)|salary|policy number|insurance|medical record|diagnosis|prescription|employee id/i;
 
+const PROMPT_INJECTION_REGEX =
+  /(?:ignore|disregard|forget|override|cancel|bypass)\s+(?:all\s+)?(?:previous|prior|above|former|system)?\s+(?:instructions|prompts|directives|rules|constraints)|(?:new|updated|revised)\s+(?:system\s+)?(?:instructions|directives|task|role|prompt)\s*:|you\s+are\s+now\s+(?:a|an|in)?\s*(?:developer\s+mode|dan|jailbreak|god\s+mode)|act\s+as\s+(?:a|an)?\s*(?:unrestricted|unfiltered|jailbroken)|<\|im_start\|>|<\|im_end\|>|\[\s*SYSTEM\s*INSTRUCTION\s*\]|<\s*\/?\s*system\s*>|```\s*(?:system|prompt)/i;
+
 /**
  * Convenience profile fields — stored locally (chrome.storage.local, never
  * synced), never sent to the server. A field that maps to one of these gets
@@ -466,6 +469,8 @@ function sanitizeDom(otpElements, profile) {
     const profileKey = isHardSensitive ? null : matchFieldToProfileKey(el);
     const hasProfileValue = profileKey && typeof profile[profileKey] === "string" && profile[profileKey].trim();
 
+    const isPromptInjection = PROMPT_INJECTION_REGEX.test(rawText);
+
     let text, isSensitive;
     if (!isHardSensitive && isEmpty && hasProfileValue) {
       // Nothing real is on-screen yet — safe to show a resolvable token
@@ -478,7 +483,13 @@ function sanitizeDom(otpElements, profile) {
       // real personal data on screen — treat it as sensitive from here on,
       // same as any other PII, even though it isn't hard-blocked.
       isSensitive = isHardSensitive || hit || Boolean(profileKey && !isEmpty);
-      text = isSensitive ? (hit ? masked : "[REDACTED]") : rawText;
+      if (isSensitive) {
+        text = hit ? masked : "[REDACTED]";
+      } else if (isPromptInjection) {
+        text = `[PROMPT INJECTION NEUTRALIZED: "${rawText.slice(0, 40)}..."]`;
+      } else {
+        text = rawText;
+      }
     }
 
     const selector = el.id ? `#${el.id}` : `[data-agent-idx="${i}"]`;
@@ -493,6 +504,7 @@ function sanitizeDom(otpElements, profile) {
       text,
       box: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
       sensitive: isSensitive,
+      suspiciousInjection: isPromptInjection,
     });
   }
 

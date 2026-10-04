@@ -31,6 +31,7 @@ class DomNode(BaseModel):
     text: str
     box: dict  # {x, y, w, h}
     sensitive: bool = False
+    suspiciousInjection: bool = False
 
 
 class AgentStepRequest(BaseModel):
